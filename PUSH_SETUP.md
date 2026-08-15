@@ -53,3 +53,21 @@ Create a service account in Google Cloud/Firebase with permission to access Fire
 GitHub Actions scheduled workflows have a 5-minute minimum schedule and GitHub may delay scheduled jobs. Therefore the background notification is designed to be **near the reminder time**, not guaranteed to arrive at the exact second.
 
 The app's existing foreground checker remains as a fallback while the PWA is open.
+
+
+## V66 update — Background push testing and diagnostics
+
+- Added a manual GitHub Actions **test notification** mode that sends a Web Push to every registered device.
+- GitHub Actions workflow now reports users, subscriptions, reminder candidates, pushes sent/failed, and removed expired subscriptions.
+- Increased the normal reminder detection window from 2 minutes to 15 minutes to tolerate GitHub scheduled-run delays.
+- The test mode is independent of task/activity deadlines, so it can verify the Web Push pipeline directly.
+
+
+## V66 manual background-push test
+
+1. Confirm `VAPID_PRIVATE_KEY` and `FIREBASE_SERVICE_ACCOUNT_JSON` are GitHub Actions secrets.
+2. Confirm `VAPID_PUBLIC_KEY` and `VAPID_SUBJECT` are GitHub Actions variables.
+3. Open GitHub → Actions → **NUS Companion Push Reminders** → **Run workflow**.
+4. Set **Send a test push notification to every registered device** to `true` and run it.
+5. Open the workflow run and inspect the JSON summary. `pushesSent` should be at least 1 for a registered device.
+6. The iPhone does not need the PWA open for this test; it must have previously granted notification permission and registered its push subscription.

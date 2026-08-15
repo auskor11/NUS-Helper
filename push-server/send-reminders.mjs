@@ -14,7 +14,7 @@ webpush.setVapidDetails(VAPID_SUBJECT, VAPID_PUBLIC_KEY, process.env.VAPID_PRIVA
 
 const TZ = "+08:00";
 const MINUTE = 60_000;
-const WINDOW = 2 * 60 * MINUTE;
+const WINDOW = 15 * MINUTE;
 
 function localDateTime(date, time="23:59") {
   if (!date) return NaN;
@@ -77,16 +77,17 @@ async function logRef(uid, id) {
   return db.collection("users").doc(uid).collection("notificationLog").doc(encodeURIComponent(id));
 }
 
-async function sendForUser(uid, subscriptions, reminders) {
+async function sendForUser(uid, subscriptions, reminders, stats) {
   for (const reminder of reminders) {
     const ref=await logRef(uid, reminder.id);
     const existing=await ref.get();
-    if (existing.exists) continue;
+    if (existing.exists) { stats.skippedLogged++; continue; }
 
     let delivered=false;
     for (const subDoc of subscriptions) {
+      stats.subscriptionAttempts++;
       const subscription=subDoc.data().subscription;
-      if(!subscription?.endpoint) continue;
+      if(!subscription?.endpoint) { stats.invalidSubscriptions++; continue; }
       try {
         await webpush.sendNotification(subscription, JSON.stringify({
           title: reminder.title,
@@ -95,36 +96,104 @@ async function sendForUser(uid, subscriptions, reminders) {
           tag: `nus-${reminder.id}`
         }), {TTL: 3600, urgency:"high"});
         delivered=true;
+        stats.pushesSent++;
       } catch (err) {
         const status=err?.statusCode;
+        stats.pushesFailed++;
         if(status===404 || status===410) {
           await subDoc.ref.delete().catch(()=>{});
+          stats.subscriptionsRemoved++;
         } else {
           console.warn(`Push failed for ${uid}:`, status || err.message || err);
         }
       }
     }
-    if(delivered) await ref.set({sentAt:FieldValue.serverTimestamp(), stage:reminder.stage});
+    if(delivered) {
+      await ref.set({sentAt:FieldValue.serverTimestamp(), stage:reminder.stage});
+      stats.remindersLogged++;
+    }
   }
 }
 
+async function sendTestForUser(uid, subscriptions, stats) {
+  const reminder = {
+    id:`test:${Date.now()}:${uid}`,
+    stage:"test",
+    title:"🧪 NUS Companion test",
+    body:"Background push notifications are working.",
+    href:"/index.html"
+  };
+
+  for (const subDoc of subscriptions) {
+    stats.subscriptionAttempts++;
+    const subscription=subDoc.data().subscription;
+    if(!subscription?.endpoint) { stats.invalidSubscriptions++; continue; }
+    try {
+      await webpush.sendNotification(subscription, JSON.stringify({
+        title: reminder.title,
+        body: reminder.body,
+        href: reminder.href,
+        tag: "nus-background-push-test"
+      }), {TTL: 3600, urgency:"high"});
+      stats.pushesSent++;
+    } catch (err) {
+      const status=err?.statusCode;
+      stats.pushesFailed++;
+      if(status===404 || status===410) {
+        await subDoc.ref.delete().catch(()=>{});
+        stats.subscriptionsRemoved++;
+      } else {
+        console.warn(`Test push failed for ${uid}:`, status || err.message || err);
+      }
+    }
+  }
+}
 const usersSnap=await db.collection("users").get();
 const now=Date.now();
-let users=0, sent=0;
+const testMode=String(process.env.PUSH_TEST||"false").toLowerCase()==="true";
+const stats={
+  usersChecked:usersSnap.size,
+  usersWithState:0,
+  usersWithSubscriptions:0,
+  usersWithReminders:0,
+  reminderCandidates:0,
+  subscriptionAttempts:0,
+  pushesSent:0,
+  pushesFailed:0,
+  invalidSubscriptions:0,
+  subscriptionsRemoved:0,
+  remindersLogged:0,
+  skippedLogged:0
+};
+
 for (const userDoc of usersSnap.docs) {
   const uid=userDoc.id;
   const [stateSnap, subsSnap]=await Promise.all([
     userDoc.ref.collection("appState").doc("main").get(),
     userDoc.ref.collection("pushSubscriptions").get()
   ]);
-  if(!stateSnap.exists || subsSnap.empty) continue;
+  if(stateSnap.exists) stats.usersWithState++;
+  if(subsSnap.empty) continue;
+  stats.usersWithSubscriptions++;
+
+  if(testMode) {
+    await sendTestForUser(uid,subsSnap.docs,stats);
+    continue;
+  }
+
+  if(!stateSnap.exists) continue;
   const state=stateSnap.data() || {};
   const reminders=[];
   for(const task of (state.tasks||[])) { const r=reminderForTask(task,now); if(r)reminders.push(r); }
   for(const activity of (state.activities||[])) { const r=reminderForActivity(activity,now); if(r)reminders.push(r); }
   if(!reminders.length) continue;
-  users++;
-  await sendForUser(uid,subsSnap.docs,reminders);
-  sent+=reminders.length;
+  stats.usersWithReminders++;
+  stats.reminderCandidates+=reminders.length;
+  await sendForUser(uid,subsSnap.docs,reminders,stats);
 }
-console.log(`NUS Companion push check complete. Users with reminders: ${users}; reminder candidates: ${sent}.`);
+
+console.log("NUS Companion push check complete.");
+console.log(JSON.stringify({
+  mode:testMode?"TEST":"REMINDER",
+  ...stats
+},null,2));

@@ -4,6 +4,12 @@ on:
   schedule:
     - cron: "*/5 * * * *"
   workflow_dispatch:
+    inputs:
+      test_notification:
+        description: "Send a test push notification to every registered device"
+        required: false
+        type: boolean
+        default: false:
 
 jobs:
   send-reminders:
@@ -27,5 +33,6 @@ jobs:
           VAPID_PRIVATE_KEY: ${{ secrets.VAPID_PRIVATE_KEY }}
           VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
           VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
+          PUSH_TEST: ${{ inputs.test_notification || 'false' }}
         working-directory: push-server
         run: node send-reminders.mjs

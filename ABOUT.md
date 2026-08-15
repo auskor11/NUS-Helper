@@ -316,3 +316,11 @@ NUS Companion is an independent personal project. It is not affiliated with, end
 - Fixed the notification system not detecting the VAPID public key because `push-config.js` was not loaded before `shared.js`.
 - Added `push-config.js` to pages that load the shared notification system.
 - Bumped the service-worker cache version to V65.1.
+
+
+## V66 update — Background push testing and diagnostics
+
+- Added a manual GitHub Actions **test notification** mode that sends a Web Push to every registered device.
+- GitHub Actions workflow now reports users, subscriptions, reminder candidates, pushes sent/failed, and removed expired subscriptions.
+- Increased the normal reminder detection window from 2 minutes to 15 minutes to tolerate GitHub scheduled-run delays.
+- The test mode is independent of task/activity deadlines, so it can verify the Web Push pipeline directly.
