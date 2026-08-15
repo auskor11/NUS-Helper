@@ -342,20 +342,8 @@ function cleanupNotificationLog(){
 }
 
 function notificationScheduleCheck(){
-  cleanupNotificationLog();
-  const items=buildNotificationItems(), now=Date.now(), log=notificationLog();
-  let changed=false;
-
-  for(const item of items){
-    // Reminder is due when its scheduled time has passed, but only during a
-    // 24-hour grace window so opening the app days later doesn't spam old alerts.
-    if(item.when>now || now-item.when>86400000)continue;
-    if(log[item.id])continue;
-    log[item.id]=now; changed=true;
-    showAppNotification(item);
-  }
-
-  if(changed)saveNotificationLog(log);
+  // Background Web Push is the single source of truth for reminder delivery.
+  // Intentionally no-op to prevent duplicate foreground notifications.
 }
 
 async function showAppNotification(item){
@@ -515,13 +503,9 @@ async function initCommon(){
     openNotificationCenter();
   });
 
-  // Check reminders whenever a page is opened, when the app returns to the
-  // foreground, and periodically while it remains open.
-  notificationScheduleCheck();
-  document.addEventListener("visibilitychange",()=>{
-    if(document.visibilityState==="visible")notificationScheduleCheck();
-  });
-  setInterval(notificationScheduleCheck,60000);
+  // Reminder delivery is handled exclusively by the server-side Web Push
+  // scheduler. Do not run the old foreground/local notification scheduler,
+  // otherwise one reminder can produce two notifications.
 
   setupInstall();
   setupFirebaseAccount();

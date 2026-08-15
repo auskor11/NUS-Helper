@@ -348,3 +348,11 @@ NUS Companion is an independent personal project. It is not affiliated with, end
 - Preserved automatic `users/{uid}` creation before app-state and push-subscription writes.
 - Preserved the 15-minute reminder detection window and manual test-notification workflow.
 - Production workflow output is concise: users checked, subscriptions found, push attempts, pushes sent, and failures.
+
+
+## V67.2 — Duplicate notification fix
+- Removed foreground/local reminder delivery from the client.
+- Background Web Push via GitHub Actions is now the single source of truth for reminder delivery.
+- This prevents one reminder from generating both a server push and a local in-app notification.
+- Preserved the Notification Centre display and background push service worker.
+- Fixed the workflow YAML `default: false:` typo if present.
