@@ -156,6 +156,22 @@ async function sendTestForUser(uid, subscriptions, stats) {
     }
   }
 }
+try {
+  const collections = await db.listCollections();
+  console.log("Top-level collections visible to Admin SDK:", collections.map(c => c.id).join(", ") || "(none)");
+} catch (err) {
+  console.log("Could not list top-level collections:", err.message || err);
+}
+
+const diagnosticUserId = process.env.DIAGNOSTIC_USER_ID || "";
+if (diagnosticUserId) {
+  const directUserSnap = await db.collection("users").doc(diagnosticUserId).get();
+  console.log("Direct diagnostic user read:", directUserSnap.exists ? "EXISTS" : "NOT FOUND");
+  if (directUserSnap.exists) {
+    const subSnap = await directUserSnap.ref.collection("pushSubscriptions").get();
+    console.log("Direct diagnostic user's pushSubscriptions:", subSnap.size);
+  }
+}
 const usersSnap=await db.collection("users").get();
 console.log("Firestore users collection exists/readable:", true);
 console.log("Firestore users documents:", usersSnap.size);

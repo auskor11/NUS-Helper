@@ -75,3 +75,10 @@ The app's existing foreground checker remains as a fallback while the PWA is ope
 
 ## V66.1 diagnostics
 - Added temporary Firebase/Firestore diagnostics to the push worker so the GitHub Actions log reports the configured project, database, and number of `/users` documents returned.
+
+
+## V66.2 Firestore diagnostic
+- Temporarily prints the top-level collections visible to the Admin SDK.
+- Temporarily performs a direct read of the specified Firebase Auth user document and its `pushSubscriptions` subcollection.
+- Before pushing, replace `REPLACE_WITH_YOUR_FIREBASE_USER_UID` in `.github/workflows/push-reminders.yml` with the UID shown in Firebase Console under `users` (do not use the 64-character push subscription document ID).
+- Remove the diagnostic variable after troubleshooting is complete.
