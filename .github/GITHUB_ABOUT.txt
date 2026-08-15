@@ -1,0 +1,10 @@
+Suggested GitHub repository description:
+Personal NUS student PWA for timetables, modules, tasks, activities, campus venues, shuttle stops and Firebase cloud sync.
+
+Suggested topics:
+nus, nus-students, nusmods, student-dashboard, pwa, firebase, javascript, leaflet, singapore
+
+
+V20: NUSMods-first venue coordinates + optional Google Places search, task bulk deletion/editing, overdue alerts, and editable module lesson timings.
+
+V22: red NUS bus-stop markers, NUSMods lesson-group import inside module editing, and activity editing.

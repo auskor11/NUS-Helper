@@ -1,0 +1,32 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#0b0d12">
+<link rel="manifest" href="/manifest.webmanifest">
+<link rel="icon" href="assets/icon.svg">
+<title>Map · NUS Companion</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Inter:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="https://unpkg.com/leaflet@1.9.4/dist/leaflet.css" crossorigin="">
+<link rel="stylesheet" href="/styles.css">
+</head>
+<body data-page="map">
+<div class="app-shell">
+
+</div>
+<div class="modal-backdrop is-hidden" id="modalBackdrop" hidden>
+  <div class="modal">
+    <button class="modal-close" id="modalClose" type="button">×</button>
+    <div id="modalContent"></div>
+  </div>
+</div>
+<script src="/firebase-config.js"></script>
+<script src="/firebase.js"></script>
+  <script src="/push-config.js"></script>
+<script src="/shared.js"></script>
+<script src="https://unpkg.com/leaflet@1.9.4/dist/leaflet.js" crossorigin=""></script><script src="/map.js"></script>
+</body>
+</html>

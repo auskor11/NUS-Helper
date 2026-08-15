@@ -1,0 +1,10 @@
+{
+  "name":"nus-companion-push-server",
+  "private":true,
+  "type":"module",
+  "engines":{"node":">=20"},
+  "dependencies":{
+    "firebase-admin":"^13.0.0",
+    "web-push":"^3.6.7"
+  }
+}
