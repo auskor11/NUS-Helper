@@ -541,3 +541,9 @@ This is an independent personal student project and is not affiliated with or en
 - Replaced the incorrect `sw.js` application script with a real service worker that handles `push` events and displays background notifications.
 - Added notification-click handling so tapping a reminder opens the relevant page.
 - Ensures `users/{uid}` exists before saving app state or push subscriptions, so GitHub Actions can discover registered devices.
+
+
+## V66.4 — Firestore push setup permission fix
+- Fixed Firestore rules so signed-in users can create/update their own `users/{uid}` parent document.
+- This allows the notification setup code to save the Web Push subscription without a `missing or insufficient permissions` error.
+- Existing `pushSubscriptions` documents and the V66.3 background service worker are preserved.

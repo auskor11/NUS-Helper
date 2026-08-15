@@ -2,10 +2,15 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    match /users/{userId}/appState/{documentId} {
+    // User profile document. The client needs to create/update this parent
+    // document before saving app state and push subscriptions.
+    match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
+    match /users/{userId}/appState/{documentId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
 
     match /users/{userId}/pushSubscriptions/{subscriptionId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
