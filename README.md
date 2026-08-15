@@ -573,3 +573,11 @@ This is an independent personal student project and is not affiliated with or en
 - LocalStorage remains as an offline cache.
 - A timestamp guard prevents an older remote snapshot from overwriting a newer local edit while it is being saved.
 - The existing Web Push reminder system is unchanged.
+
+
+## V69 — Activity location search
+- Activity locations now use the same search priority as the NUS Map.
+- NUSMods venue matches are searched first.
+- If no NUSMods venue matches, the search falls back to external maps (Google Places when configured, then OpenStreetMap/Photon).
+- Selected location source and coordinates are saved with the activity.
+- Existing activity locations remain compatible and can still be edited.
