@@ -15,7 +15,8 @@
     async saveState(){throw new Error("Firebase is not configured.");},
     async loadState(){return null;},
     async savePushSubscription(){throw new Error("Firebase is not configured.");},
-    async removePushSubscription(){throw new Error("Firebase is not configured.");}
+    async removePushSubscription(){throw new Error("Firebase is not configured.");},
+    startStateSync(){return ()=>{};}
   };
 
   let resolveAuthReady;
@@ -140,6 +141,7 @@
             activities:snapshot.activities||[],
             tasks:snapshot.tasks||[],
             semester:snapshot.semester||{},
+            clientUpdatedAt:Date.now(),
             updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
           },{merge:true});
         },

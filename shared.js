@@ -43,6 +43,10 @@ const state = {
 };
 
 let cloudSaveTimer = null;
+let cloudSyncStop = null;
+let cloudSyncActive = false;
+let lastLocalCloudChangeAt = 0;
+let lastRemoteCloudChangeAt = 0;
 
 function save(options={}){
   localStorage.setItem("nus_modules", JSON.stringify(state.modules));
@@ -54,6 +58,7 @@ function save(options={}){
   // Normal edits are debounced. Destructive operations can request an
   // immediate Firestore write so a refresh cannot race the pending save.
   if(window.nusFirebase?.configured && window.nusFirebase?.user){
+    lastLocalCloudChangeAt=Date.now();
     clearTimeout(cloudSaveTimer);
     if(options.immediate){
       return window.nusFirebase.saveState(state).catch(err=>{
@@ -549,36 +554,82 @@ async function setupFirebaseAccount(){
     if(e.detail?.code!=="auth/popup-closed-by-user") toast(msg);
   });
 
-  window.addEventListener("nus-cloud-state",async e=>{
-    const remote=e.detail;
-    if(remote){
-      if(Array.isArray(remote.modules)) state.modules=remote.modules;
-      if(Array.isArray(remote.lessons)) state.lessons=remote.lessons;
-      if(Array.isArray(remote.activities)){
-        const deleted=deletedIds(DELETED_ACTIVITIES_KEY);
-        state.activities=remote.activities.filter(a=>!deleted.has(String(a.id)));
+  const applyCloudState=async remote=>{
+    if(!remote){
+      if(window.nusFirebase?.user){
+        try{
+          await window.nusFirebase.saveState(state);
+          toast("Your local data is now synced to Firebase.");
+        }catch(err){
+          console.error(err);
+          toast("Signed in, but Firestore could not save your data. Check Firestore rules.");
+        }
       }
-      if(Array.isArray(remote.tasks)){
-        const deleted=deletedIds(DELETED_TASKS_KEY);
-        state.tasks=remote.tasks.filter(t=>!deleted.has(String(t.id)));
-      }
-      if(remote.semester) state.semester=remote.semester;
-
-      localStorage.setItem("nus_modules",JSON.stringify(state.modules));
-      localStorage.setItem("nus_lessons",JSON.stringify(state.lessons));
-      localStorage.setItem("nus_activities",JSON.stringify(state.activities));
-      localStorage.setItem("nus_tasks",JSON.stringify(state.tasks));
-      localStorage.setItem("nus_semester",JSON.stringify(state.semester));
-    }else if(window.nusFirebase?.user){
-      try{
-        await window.nusFirebase.saveState(state);
-        toast("Your local data is now synced to Firebase.");
-      }catch(err){
-        console.error(err);
-        toast("Signed in, but Firestore could not save your data. Check Firestore rules.");
-      }
+      return;
     }
+
+    const remoteChangedAt=Number(remote.clientUpdatedAt||0);
+    // A local edit that has not yet reached Firestore must not be overwritten
+    // by an older realtime snapshot. Firestore remains the source of truth
+    // once the local write has completed.
+    if(remoteChangedAt && remoteChangedAt < lastLocalCloudChangeAt) return;
+    if(remoteChangedAt && remoteChangedAt === lastRemoteCloudChangeAt) return;
+
+    lastRemoteCloudChangeAt=remoteChangedAt || Date.now();
+    if(Array.isArray(remote.modules)) state.modules=remote.modules;
+    if(Array.isArray(remote.lessons)) state.lessons=remote.lessons;
+    if(Array.isArray(remote.activities)){
+      const deleted=deletedIds(DELETED_ACTIVITIES_KEY);
+      state.activities=remote.activities.filter(a=>!deleted.has(String(a.id)));
+    }
+    if(Array.isArray(remote.tasks)){
+      const deleted=deletedIds(DELETED_TASKS_KEY);
+      state.tasks=remote.tasks.filter(t=>!deleted.has(String(t.id)));
+    }
+    if(remote.semester) state.semester=remote.semester;
+
+    localStorage.setItem("nus_modules",JSON.stringify(state.modules));
+    localStorage.setItem("nus_lessons",JSON.stringify(state.lessons));
+    localStorage.setItem("nus_activities",JSON.stringify(state.activities));
+    localStorage.setItem("nus_tasks",JSON.stringify(state.tasks));
+    localStorage.setItem("nus_semester",JSON.stringify(state.semester));
+
+    // Re-render any current page after a change from another device/tab.
+    window.dispatchEvent(new CustomEvent("nus-cloud-state-applied"));
+  };
+
+  window.addEventListener("nus-cloud-state",e=>applyCloudState(e.detail));
+
+  const startRealtimeSync=()=>{
+    if(cloudSyncStop) cloudSyncStop();
+    cloudSyncStop=window.nusFirebase?.startStateSync?.(
+      remote=>{
+        cloudSyncActive=true;
+        applyCloudState(remote);
+      },
+      err=>{
+        cloudSyncActive=false;
+        console.error("Realtime cloud sync failed",err);
+        toast("Realtime sync is temporarily unavailable. Your local changes are still saved.");
+      }
+    ) || null;
+    if(cloudSyncStop) cloudSyncActive=true;
+  };
+
+  window.addEventListener("nus-auth-changed",e=>{
+    if(e.detail) startRealtimeSync();
+    else if(cloudSyncStop){ cloudSyncStop(); cloudSyncStop=null; cloudSyncActive=false; }
   });
+
+  window.addEventListener("nus-cloud-state-applied",()=>{
+    // Pages listen for this event to redraw without requiring Sync Now.
+    window.dispatchEvent(new CustomEvent("nus-data-changed"));
+  });
+
+  // initCommon runs after authentication has already resolved, so the
+  // auth-change event may have happened before this listener was installed.
+  // Start the realtime listener immediately for an already-authenticated user.
+  if(window.nusFirebase?.user) startRealtimeSync();
 
   btn.addEventListener("click",async()=>{
     const api=window.nusFirebase;

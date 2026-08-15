@@ -101,6 +101,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     return `<div class="month-day ${inMonth?"":"muted"} ${sameDay(d,new Date())?"today":""}"><div class="day-num">${d.getDate()}</div>${tasks.slice(0,3).map(t=>`<div class="cal-event task-event">✓ ${esc(t.title)}<small>${inputTimeToLabel(t.dueTime)}</small></div>`).join("")}${acts.slice(0,3).map(a=>`<div class="cal-event activity-cal">◎ ${esc(a.name)}${a.venue?`<small>${mapLocationLink(a.venue)}</small>`:""}</div>`).join("")}</div>`;
   }
 
+  window.addEventListener("nus-data-changed",()=>render());
   render();
   setInterval(updateCurrentTimeLine,30000);
   initCommon();

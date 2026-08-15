@@ -110,3 +110,13 @@ The app's existing foreground checker remains as a fallback while the PWA is ope
 - This prevents one reminder from generating both a server push and a local in-app notification.
 - Preserved the Notification Centre display and background push service worker.
 - Fixed the workflow YAML `default: false:` typo if present.
+
+
+## V68 — Automatic cloud sync
+
+- Firestore now listens in real time for changes to the signed-in user's app state.
+- Task, activity, module and dashboard pages redraw automatically when another device changes the data.
+- Normal edits continue to save automatically to Firestore; the old manual Sync Now workflow is no longer required for routine syncing.
+- LocalStorage remains as an offline cache.
+- A timestamp guard prevents an older remote snapshot from overwriting a newer local edit while it is being saved.
+- The existing Web Push reminder system is unchanged.

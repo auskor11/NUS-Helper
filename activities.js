@@ -108,5 +108,6 @@ document.addEventListener("DOMContentLoaded",()=>{
     };
   }
 
+  window.addEventListener("nus-data-changed",()=>render());
   render(); initCommon(); initModal();
 });

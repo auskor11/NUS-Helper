@@ -35,6 +35,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   // caused the popup to be missed on devices whose cloud data arrived later.
   initCommon().then(checkOverdue).catch(()=>checkOverdue());
   window.addEventListener("nus-cloud-state",checkOverdue,{once:true});
+  window.addEventListener("nus-data-changed",()=>window.location.reload());
 });
 
 function showOverduePopup(tasks){

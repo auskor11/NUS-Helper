@@ -333,5 +333,6 @@ document.addEventListener("DOMContentLoaded",()=>{
     }
   }
 
+  window.addEventListener("nus-data-changed",()=>render());
   initCommon(); initModal();
 });

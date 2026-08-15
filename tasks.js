@@ -117,5 +117,6 @@ document.addEventListener("DOMContentLoaded",()=>{
     state.tasks[i].done=!state.tasks[i].done; save(); render();
   };
 
+  window.addEventListener("nus-data-changed",()=>render());
   render(); initCommon(); initModal();
 });
