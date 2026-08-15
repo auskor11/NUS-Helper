@@ -8,6 +8,9 @@ if (!process.env.VAPID_PRIVATE_KEY) throw new Error("VAPID_PRIVATE_KEY is missin
 admin.initializeApp({credential: admin.credential.cert(serviceAccount)});
 const db = admin.firestore();
 
+console.log("Service account project_id:", serviceAccount.project_id);
+console.log("Service account client_email:", serviceAccount.client_email);
+console.log("Admin app project_id:", admin.app().options.credential?.projectId || "(unknown)");
 const diagnosticProjectId = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || "(not provided)";
 const diagnosticDatabaseId = process.env.FIRESTORE_DATABASE_ID || "(default)";
 console.log("=== FIREBASE DIAGNOSTICS ===");
