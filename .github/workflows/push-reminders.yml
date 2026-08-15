@@ -35,6 +35,6 @@ jobs:
           VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
           PUSH_TEST: ${{ inputs.test_notification || 'false' }}
           FIREBASE_PROJECT_ID: nus-app-5a7d7
-          DIAGNOSTIC_USER_ID: REPLACE_WITH_YOUR_FIREBASE_USER_UID
+          DIAGNOSTIC_USER_ID: kHsjY3lwM5N49mcLSOsDM8Rdcdo1
         working-directory: push-server
         run: node send-reminders.mjs
