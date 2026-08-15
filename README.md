@@ -531,3 +531,7 @@ This is an independent personal student project and is not affiliated with or en
 - GitHub Actions workflow now reports users, subscriptions, reminder candidates, pushes sent/failed, and removed expired subscriptions.
 - Increased the normal reminder detection window from 2 minutes to 15 minutes to tolerate GitHub scheduled-run delays.
 - The test mode is independent of task/activity deadlines, so it can verify the Web Push pipeline directly.
+
+
+## V66.1 diagnostics
+- Added temporary Firebase/Firestore diagnostics to the push worker so the GitHub Actions log reports the configured project, database, and number of `/users` documents returned.

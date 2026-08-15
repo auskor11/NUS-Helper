@@ -71,3 +71,7 @@ The app's existing foreground checker remains as a fallback while the PWA is ope
 4. Set **Send a test push notification to every registered device** to `true` and run it.
 5. Open the workflow run and inspect the JSON summary. `pushesSent` should be at least 1 for a registered device.
 6. The iPhone does not need the PWA open for this test; it must have previously granted notification permission and registered its push subscription.
+
+
+## V66.1 diagnostics
+- Added temporary Firebase/Firestore diagnostics to the push worker so the GitHub Actions log reports the configured project, database, and number of `/users` documents returned.
