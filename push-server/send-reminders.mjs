@@ -8,12 +8,6 @@ if (!process.env.VAPID_PRIVATE_KEY) throw new Error("VAPID_PRIVATE_KEY is missin
 admin.initializeApp({credential: admin.credential.cert(serviceAccount)});
 const db = admin.firestore();
 
-const diagnosticProjectId = process.env.GCLOUD_PROJECT || process.env.GOOGLE_CLOUD_PROJECT || process.env.FIREBASE_PROJECT_ID || "(not provided)";
-const diagnosticDatabaseId = process.env.FIRESTORE_DATABASE_ID || "(default)";
-console.log("=== FIREBASE DIAGNOSTICS ===");
-console.log("Project ID:", diagnosticProjectId);
-console.log("Firestore database:", diagnosticDatabaseId);
-console.log("============================");
 
 const FieldValue = admin.firestore.FieldValue;
 const VAPID_PUBLIC_KEY = process.env.VAPID_PUBLIC_KEY;
@@ -89,13 +83,13 @@ async function sendForUser(uid, subscriptions, reminders, stats) {
   for (const reminder of reminders) {
     const ref=await logRef(uid, reminder.id);
     const existing=await ref.get();
-    if (existing.exists) { stats.skippedLogged++; continue; }
+    if (existing.exists) { continue; }
 
     let delivered=false;
     for (const subDoc of subscriptions) {
       stats.subscriptionAttempts++;
       const subscription=subDoc.data().subscription;
-      if(!subscription?.endpoint) { stats.invalidSubscriptions++; continue; }
+      if(!subscription?.endpoint) { continue; }
       try {
         await webpush.sendNotification(subscription, JSON.stringify({
           title: reminder.title,
@@ -135,7 +129,7 @@ async function sendTestForUser(uid, subscriptions, stats) {
   for (const subDoc of subscriptions) {
     stats.subscriptionAttempts++;
     const subscription=subDoc.data().subscription;
-    if(!subscription?.endpoint) { stats.invalidSubscriptions++; continue; }
+    if(!subscription?.endpoint) { continue; }
     try {
       await webpush.sendNotification(subscription, JSON.stringify({
         title: reminder.title,
@@ -156,22 +150,6 @@ async function sendTestForUser(uid, subscriptions, stats) {
     }
   }
 }
-try {
-  const collections = await db.listCollections();
-  console.log("Top-level collections visible to Admin SDK:", collections.map(c => c.id).join(", ") || "(none)");
-} catch (err) {
-  console.log("Could not list top-level collections:", err.message || err);
-}
-
-const diagnosticUserId = process.env.DIAGNOSTIC_USER_ID || "";
-if (diagnosticUserId) {
-  const directUserSnap = await db.collection("users").doc(diagnosticUserId).get();
-  console.log("Direct diagnostic user read:", directUserSnap.exists ? "EXISTS" : "NOT FOUND");
-  if (directUserSnap.exists) {
-    const subSnap = await directUserSnap.ref.collection("pushSubscriptions").get();
-    console.log("Direct diagnostic user's pushSubscriptions:", subSnap.size);
-  }
-}
 const usersSnap=await db.collection("users").get();
 console.log("Firestore users collection exists/readable:", true);
 console.log("Firestore users documents:", usersSnap.size);
@@ -184,17 +162,10 @@ const now=Date.now();
 const testMode=String(process.env.PUSH_TEST||"false").toLowerCase()==="true";
 const stats={
   usersChecked:usersSnap.size,
-  usersWithState:0,
   usersWithSubscriptions:0,
-  usersWithReminders:0,
-  reminderCandidates:0,
   subscriptionAttempts:0,
   pushesSent:0,
   pushesFailed:0,
-  invalidSubscriptions:0,
-  subscriptionsRemoved:0,
-  remindersLogged:0,
-  skippedLogged:0
 };
 
 for (const userDoc of usersSnap.docs) {
@@ -203,7 +174,6 @@ for (const userDoc of usersSnap.docs) {
     userDoc.ref.collection("appState").doc("main").get(),
     userDoc.ref.collection("pushSubscriptions").get()
   ]);
-  if(stateSnap.exists) stats.usersWithState++;
   if(subsSnap.empty) continue;
   stats.usersWithSubscriptions++;
 
@@ -218,13 +188,15 @@ for (const userDoc of usersSnap.docs) {
   for(const task of (state.tasks||[])) { const r=reminderForTask(task,now); if(r)reminders.push(r); }
   for(const activity of (state.activities||[])) { const r=reminderForActivity(activity,now); if(r)reminders.push(r); }
   if(!reminders.length) continue;
-  stats.usersWithReminders++;
-  stats.reminderCandidates+=reminders.length;
   await sendForUser(uid,subsSnap.docs,reminders,stats);
 }
 
 console.log("NUS Companion push check complete.");
 console.log(JSON.stringify({
   mode:testMode?"TEST":"REMINDER",
-  ...stats
+  usersChecked:stats.usersChecked,
+  usersWithSubscriptions:stats.usersWithSubscriptions,
+  subscriptionAttempts:stats.subscriptionAttempts,
+  pushesSent:stats.pushesSent,
+  pushesFailed:stats.pushesFailed
 },null,2));

@@ -94,3 +94,11 @@ The app's existing foreground checker remains as a fallback while the PWA is ope
 - Fixed Firestore rules so signed-in users can create/update their own `users/{uid}` parent document.
 - This allows the notification setup code to save the Web Push subscription without a `missing or insufficient permissions` error.
 - Existing `pushSubscriptions` documents and the V66.3 background service worker are preserved.
+
+
+## V67 — Notification system cleanup
+- Removed temporary Firebase/Firestore diagnostic logging used during Web Push troubleshooting.
+- Preserved the working background Web Push service worker and GitHub Actions sender.
+- Preserved automatic `users/{uid}` creation before app-state and push-subscription writes.
+- Preserved the 15-minute reminder detection window and manual test-notification workflow.
+- Production workflow output is concise: users checked, subscriptions found, push attempts, pushes sent, and failures.
