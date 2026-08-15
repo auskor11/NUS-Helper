@@ -9,7 +9,7 @@ on:
         description: "Send a test push notification to every registered device"
         required: false
         type: boolean
-        default: false
+        default: false:
 
 jobs:
   send-reminders:
@@ -35,6 +35,5 @@ jobs:
           VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
           PUSH_TEST: ${{ inputs.test_notification || 'false' }}
           FIREBASE_PROJECT_ID: nus-app-5a7d7
-          DIAGNOSTIC_USER_ID: kHsjY3lwM5N49mcLSOsDM8Rdcdo1
         working-directory: push-server
         run: node send-reminders.mjs

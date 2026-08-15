@@ -535,3 +535,9 @@ This is an independent personal student project and is not affiliated with or en
 
 ## V66.1 diagnostics
 - Added temporary Firebase/Firestore diagnostics to the push worker so the GitHub Actions log reports the configured project, database, and number of `/users` documents returned.
+
+
+## V66.3 — Background Web Push fix
+- Replaced the incorrect `sw.js` application script with a real service worker that handles `push` events and displays background notifications.
+- Added notification-click handling so tapping a reminder opens the relevant page.
+- Ensures `users/{uid}` exists before saving app state or push subscriptions, so GitHub Actions can discover registered devices.

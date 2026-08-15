@@ -82,3 +82,9 @@ The app's existing foreground checker remains as a fallback while the PWA is ope
 - Temporarily performs a direct read of the specified Firebase Auth user document and its `pushSubscriptions` subcollection.
 - Before pushing, replace `REPLACE_WITH_YOUR_FIREBASE_USER_UID` in `.github/workflows/push-reminders.yml` with the UID shown in Firebase Console under `users` (do not use the 64-character push subscription document ID).
 - Remove the diagnostic variable after troubleshooting is complete.
+
+
+## V66.3 — Background Web Push fix
+- Replaced the incorrect `sw.js` application script with a real service worker that handles `push` events and displays background notifications.
+- Added notification-click handling so tapping a reminder opens the relevant page.
+- Ensures `users/{uid}` exists before saving app state or push subscriptions, so GitHub Actions can discover registered devices.

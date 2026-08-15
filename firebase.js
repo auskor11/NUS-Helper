@@ -128,7 +128,13 @@
         async signOut(){return auth.signOut();},
         async saveState(snapshot){
           if(!api.user) throw new Error("You are not signed in.");
-          await db.collection("users").doc(api.user.uid).collection("appState").doc("main").set({
+          const userRef=db.collection("users").doc(api.user.uid);
+          await userRef.set({
+            uid:api.user.uid,
+            email:api.user.email || null,
+            updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
+          },{merge:true});
+          await userRef.collection("appState").doc("main").set({
             modules:snapshot.modules||[],
             lessons:snapshot.lessons||[],
             activities:snapshot.activities||[],
@@ -145,6 +151,12 @@
         async savePushSubscription(subscription){
           if(!api.user) throw new Error("You are not signed in.");
           if(!subscription?.endpoint) throw new Error("Invalid push subscription.");
+          const userRef=db.collection("users").doc(api.user.uid);
+          await userRef.set({
+            uid:api.user.uid,
+            email:api.user.email || null,
+            updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
+          },{merge:true});
           const bytes=new TextEncoder().encode(subscription.endpoint);
           const digest=await crypto.subtle.digest("SHA-256",bytes);
           const docId=Array.from(new Uint8Array(digest)).map(b=>b.toString(16).padStart(2,"0")).join("");
