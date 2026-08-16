@@ -141,6 +141,7 @@
             activities:snapshot.activities||[],
             tasks:snapshot.tasks||[],
             semester:snapshot.semester||{},
+            manualFriends:snapshot.manualFriends||[],
             clientUpdatedAt:Date.now(),
             updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
           },{merge:true});

@@ -636,3 +636,18 @@ This is an independent personal student project and is not affiliated with or en
 - Removed the Home page's full `location.reload()` response to realtime data events.
 - Prevents the account-isolation reset from triggering an infinite page refresh loop.
 - Realtime sync remains enabled; other pages continue to update without full-page reloads.
+
+
+## V78 — Firebase-only persistence and sign-out
+- Sign out now immediately redirects to `login.html` after Firebase sign-out succeeds.
+- Removed app-data persistence from localStorage; Firestore is now the single source of truth for tasks, activities, modules, lessons, semester data, and manual friends.
+- Removed local deletion ledgers; task/activity deletions are persisted directly to the user's Firestore `appState/main` document.
+- Realtime cloud snapshots no longer re-apply deleted tasks or activities from local deletion markers.
+- Local UI caches for theme/calendar mode were also removed to satisfy the Firebase-only storage requirement.
+
+
+## V78 — Firebase-only persistence
+- App data is now memory-only in the browser; Firestore is the single persistent source of truth.
+- Tasks, activities, modules, lessons, semester data, and manual friends are saved to each user's Firestore `appState/main` document.
+- Removed local deletion ledgers so deleted tasks/activities cannot be resurrected by a stale browser cache.
+- Sign-out immediately redirects to the login page after Firebase completes sign-out.

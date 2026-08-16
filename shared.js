@@ -28,10 +28,9 @@ const defaultTasks = [
 function clone(v){ return JSON.parse(JSON.stringify(v)); }
 
 function read(key, fallback){
-  try {
-    const raw = localStorage.getItem(key);
-    return raw === null ? clone(fallback) : JSON.parse(raw);
-  } catch { return clone(fallback); }
+  // V78: app data is no longer persisted in localStorage.
+  // Firestore is the single source of truth.
+  return clone(fallback);
 }
 
 const state = {
@@ -39,7 +38,8 @@ const state = {
   lessons: read("nus_lessons", []),
   activities: read("nus_activities", defaultActivities),
   tasks: read("nus_tasks", defaultTasks),
-  semester: read("nus_semester", {academicYear:ACADEMIC_YEAR, semester:SEMESTER})
+  semester: read("nus_semester", {academicYear:ACADEMIC_YEAR, semester:SEMESTER}),
+  manualFriends: []
 };
 
 let cloudSaveTimer = null;
@@ -49,30 +49,28 @@ let lastLocalCloudChangeAt = 0;
 let lastRemoteCloudChangeAt = 0;
 
 function save(options={}){
-  localStorage.setItem("nus_modules", JSON.stringify(state.modules));
-  localStorage.setItem("nus_lessons", JSON.stringify(state.lessons));
-  localStorage.setItem("nus_activities", JSON.stringify(state.activities));
-  localStorage.setItem("nus_tasks", JSON.stringify(state.tasks));
-  localStorage.setItem("nus_semester", JSON.stringify(state.semester));
-
-  // Normal edits are debounced. Destructive operations can request an
-  // immediate Firestore write so a refresh cannot race the pending save.
+  // V78: Firebase/Firestore is the only persistence layer for app data.
+  // Keep state in memory, then write the complete snapshot to the signed-in
+  // user's Firestore document. Deletes use {immediate:true} so they cannot
+  // be lost behind the debounce.
   if(window.nusFirebase?.configured && window.nusFirebase?.user){
     lastLocalCloudChangeAt=Date.now();
     clearTimeout(cloudSaveTimer);
     if(options.immediate){
       return window.nusFirebase.saveState(state).catch(err=>{
         console.error("Cloud save failed",err);
-        toast("Deleted locally, but cloud sync failed.");
+        toast("Cloud save failed. Please check your connection.");
         throw err;
       });
     }
     cloudSaveTimer=setTimeout(()=>{
       window.nusFirebase.saveState(state).catch(err=>{
         console.error("Cloud save failed",err);
-        toast("Saved locally, but cloud sync failed.");
+        toast("Cloud save failed. Please check your connection.");
       });
     },350);
+  }else if(options.requireAuth){
+    return Promise.reject(new Error("You must be signed in to save data."));
   }
   return Promise.resolve();
 }
@@ -194,12 +192,12 @@ function setupSidebarControls(){
   const menuBtn=$("#menuBtn");
   if(!sidebar)return;
 
-  const key="nus_sidebar_collapsed";
+  let collapsed=false;
   const apply=()=>{
-    const collapsed=localStorage.getItem(key)==="1";
-    body.classList.toggle("sidebar-collapsed",collapsed);
-    if(openBtn) openBtn.hidden=!collapsed;
-    if(closeBtn) closeBtn.hidden=collapsed;
+    const isCollapsed=collapsed;
+    body.classList.toggle("sidebar-collapsed",isCollapsed);
+    if(openBtn) openBtn.hidden=!isCollapsed;
+    if(closeBtn) closeBtn.hidden=isCollapsed;
   };
   const setMobileOpen=(open)=>{
     sidebar.classList.toggle("open",open);
@@ -213,16 +211,16 @@ function setupSidebarControls(){
   };
   closeBtn?.addEventListener("click",()=>{
     setMobileOpen(false);
-    localStorage.setItem(key,"0");
+    collapsed=false;
     apply();
   });
   openBtn?.addEventListener("click",()=>{
-    localStorage.setItem(key,"0");
+    collapsed=false;
     apply();
     setMobileOpen(true);
   });
   menuBtn?.addEventListener("click",()=>{
-    localStorage.setItem(key,"0");
+    collapsed=false;
     setMobileOpen(!sidebar.classList.contains("open"));
     apply();
   });
@@ -261,23 +259,14 @@ const NOTIFICATION_WINDOW_MS=60*1000;
 const DELETED_TASKS_KEY="nus_deleted_task_ids_v63";
 const DELETED_ACTIVITIES_KEY="nus_deleted_activity_ids_v63";
 
-function deletedIds(key){
-  try{return new Set(JSON.parse(localStorage.getItem(key)||"[]"));}catch{return new Set();}
-}
-function saveDeletedIds(key,set){localStorage.setItem(key,JSON.stringify([...set]));}
-function markDeletedId(key,id){
-  if(!id)return;
-  const set=deletedIds(key); set.add(String(id)); saveDeletedIds(key,set);
-}
-function clearDeletedId(key,id){
-  if(!id)return;
-  const set=deletedIds(key); set.delete(String(id)); saveDeletedIds(key,set);
-}
+function deletedIds(key){ return new Set(); }
+function saveDeletedIds(key,set){ /* V78: no local persistence. */ }
+function markDeletedId(key,id){ /* V78: deletion is persisted by saveState(). */ }
+function clearDeletedId(key,id){ /* V78: no local deletion ledger. */ }
 
-function notificationLog(){
-  try{return JSON.parse(localStorage.getItem(NOTIFICATION_KEY)||"{}");}catch{return {};}
-}
-function saveNotificationLog(log){localStorage.setItem(NOTIFICATION_KEY,JSON.stringify(log));}
+let notificationMemoryLog={};
+function notificationLog(){ return {...notificationMemoryLog}; }
+function saveNotificationLog(log){ notificationMemoryLog={...log}; }
 
 function notificationTime(date){return new Date(date).getTime();}
 
@@ -482,7 +471,7 @@ function openNotificationCenter(){
     closeModal();
   });
   $("#clearNotificationLogBtn")?.addEventListener("click",()=>{
-    localStorage.removeItem(NOTIFICATION_KEY);
+    notificationMemoryLog={};
     toast("Reminder history reset.");
     closeModal();
   });
@@ -493,13 +482,13 @@ async function initCommon(){
   if(!authenticated) return;
 
   setupSidebarControls();
-  const savedTheme=localStorage.getItem("nus_theme");
+  const savedTheme=null;
   if(savedTheme==="light") document.body.classList.add("light");
 
   $("#themeBtn")?.addEventListener("click",()=>{
     document.body.classList.toggle("light");
     const light=document.body.classList.contains("light");
-    localStorage.setItem("nus_theme", light?"light":"dark");
+    
     $("#themeBtn").innerHTML=light?"☾ <span>Dark mode</span>":"☀ <span>Light mode</span>";
   });
   if(document.body.classList.contains("light")) $("#themeBtn").innerHTML="☾ <span>Dark mode</span>";
@@ -582,20 +571,14 @@ async function setupFirebaseAccount(){
     if(Array.isArray(remote.modules)) state.modules=remote.modules;
     if(Array.isArray(remote.lessons)) state.lessons=remote.lessons;
     if(Array.isArray(remote.activities)){
-      const deleted=deletedIds(DELETED_ACTIVITIES_KEY);
-      state.activities=remote.activities.filter(a=>!deleted.has(String(a.id)));
+      state.activities=remote.activities;
     }
     if(Array.isArray(remote.tasks)){
-      const deleted=deletedIds(DELETED_TASKS_KEY);
-      state.tasks=remote.tasks.filter(t=>!deleted.has(String(t.id)));
+      state.tasks=remote.tasks;
     }
     if(remote.semester) state.semester=remote.semester;
+    if(Array.isArray(remote.manualFriends)) state.manualFriends=remote.manualFriends;
 
-    localStorage.setItem("nus_modules",JSON.stringify(state.modules));
-    localStorage.setItem("nus_lessons",JSON.stringify(state.lessons));
-    localStorage.setItem("nus_activities",JSON.stringify(state.activities));
-    localStorage.setItem("nus_tasks",JSON.stringify(state.tasks));
-    localStorage.setItem("nus_semester",JSON.stringify(state.semester));
 
     // Re-render any current page after a change from another device/tab.
     window.dispatchEvent(new CustomEvent("nus-cloud-state-applied"));
@@ -619,43 +602,31 @@ async function setupFirebaseAccount(){
     if(cloudSyncStop) cloudSyncActive=true;
   };
 
-  const ACCOUNT_LOCAL_KEYS = [
-    "nus_modules","nus_lessons","nus_activities","nus_tasks","nus_semester",
-    "nus_manual_friends","nus_my_friend_code","nus_notification_log",
-    "nus_deleted_tasks","nus_deleted_activities"
-  ];
-
-  function purgeAccountLocalStorage(){
-    for(const key of ACCOUNT_LOCAL_KEYS) localStorage.removeItem(key);
-    const prefixes=["nus_manual_friends_","nus_my_friend_code_"];
-    for(let i=localStorage.length-1;i>=0;i--){
-      const key=localStorage.key(i)||"";
-      if(prefixes.some(prefix=>key.startsWith(prefix))) localStorage.removeItem(key);
-    }
-  }
-
   function resetLocalStateForAccount(){
     clearTimeout(cloudSaveTimer);
     cloudSaveTimer=null;
     lastLocalCloudChangeAt=0;
     lastRemoteCloudChangeAt=0;
-    purgeAccountLocalStorage();
 
+    // V78: no app data is stored locally. Reset only the in-memory state
+    // while Firebase changes accounts.
     state.modules=clone(DEFAULT_MODULES);
     state.lessons=[];
     state.activities=clone(defaultActivities);
     state.tasks=clone(defaultTasks);
     state.semester={academicYear:ACADEMIC_YEAR,semester:SEMESTER};
+    state.manualFriends=[];
 
-    localStorage.setItem("nus_modules",JSON.stringify(state.modules));
-    localStorage.setItem("nus_lessons",JSON.stringify(state.lessons));
-    localStorage.setItem("nus_activities",JSON.stringify(state.activities));
-    localStorage.setItem("nus_tasks",JSON.stringify(state.tasks));
-    localStorage.setItem("nus_semester",JSON.stringify(state.semester));
     window.dispatchEvent(new CustomEvent("nus-data-changed"));
   }
 
   let lastHandledAuthUid = "__uninitialized__";
+  function handleAccountBoundary(user){
+    const uid=user?.uid||null;
+    if(uid===lastHandledAuthUid) return;
+    lastHandledAuthUid=uid;
+    resetLocalStateForAccount();
+  }
   function handleAccountBoundary(user){
     const uid=user?.uid||null;
     if(uid===lastHandledAuthUid) return;
@@ -724,8 +695,8 @@ async function setupFirebaseAccount(){
           await api.signOut();
           handleAccountBoundary(null);
           closeModal();
-          update();
-          toast("Signed out.");
+          // Firebase auth state has been cleared; take the user straight to login.
+          location.replace("/login.html");
         }
         catch(err){ console.error(err); toast(readableFirebaseError(err)); }
       });

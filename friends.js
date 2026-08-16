@@ -14,22 +14,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     return uid ? `${base}_${uid}` : `${base}_signed_out`;
   }
   function initManualFriendStorage(){
-    const uid=currentUid();
-    if(!uid)return;
-    const key=`nus_manual_friends_${uid}`;
-    if(localStorage.getItem(key)!==null)return;
-
-    // One-time migration for the account that owned the pre-V75 unscoped
-    // manual-friend data. Never migrate it into a different account.
-    const legacy=localStorage.getItem("nus_manual_friends");
-    const owner=localStorage.getItem("nus_legacy_data_owner_uid");
-    if(legacy && (!owner || owner===uid)){
-      localStorage.setItem(key,legacy);
-      localStorage.setItem("nus_legacy_data_owner_uid",uid);
-      localStorage.removeItem("nus_manual_friends");
-    }else{
-      localStorage.setItem(key,"[]");
-    }
+    if(!Array.isArray(state.manualFriends)) state.manualFriends=[];
   }
 
   const lessonKey=l=>`${String(l.module||"").toUpperCase()}|${String(l.lessonType||"Class").toLowerCase()}|${String(l.classNo||l.ClassNo||"TBC").toUpperCase()}`;
@@ -47,7 +32,6 @@ document.addEventListener("DOMContentLoaded",()=>{
 
     const displayedFriendCode =
       friendCode ||
-      localStorage.getItem(scopedKey("nus_my_friend_code")) ||
       "Loading…";
 
     view.innerHTML=`<div class="section-head">
@@ -143,7 +127,7 @@ document.addEventListener("DOMContentLoaded",()=>{
       if(!name){toast("Enter your friend's name");return;}
       if(!selected.length){toast("Select at least one shared lesson");return;}
 
-      const raw=read(scopedKey("nus_manual_friends"),[]);
+      const raw=Array.isArray(state.manualFriends)?clone(state.manualFriends):[];
       const normalName=name.toLowerCase();
       let existing=raw.find(x=>String(x.name||"").trim().toLowerCase()===normalName);
       if(existing){
@@ -153,7 +137,7 @@ document.addEventListener("DOMContentLoaded",()=>{
       }else{
         raw.push({id:`manual-${Date.now()}`,name,lessons:selected.map(l=>({...l}))});
       }
-      localStorage.setItem(scopedKey("nus_manual_friends"),JSON.stringify(raw));
+      state.manualFriends=raw; save();
       loadManual();
       closeModal();
       render();
@@ -163,14 +147,14 @@ document.addEventListener("DOMContentLoaded",()=>{
 
   function loadManual(){
     initManualFriendStorage();
-    const raw=read(scopedKey("nus_manual_friends"),[]);
+    const raw=Array.isArray(state.manualFriends)?clone(state.manualFriends):[];
     const manual=raw.map(m=>({uid:m.id,displayName:m.name,friendCode:"Manual friend",lessons:m.lessons||[],manual:true}));
     friends=[...friends.filter(f=>!f.manual),...manual];
   }
 
   function removeManualFriend(id){
     const raw=read(scopedKey("nus_manual_friends"),[]).filter(x=>x.id!==id);
-    localStorage.setItem(scopedKey("nus_manual_friends"),JSON.stringify(raw));
+    state.manualFriends=raw; save();
     loadManual();
   }
 
@@ -204,19 +188,12 @@ document.addEventListener("DOMContentLoaded",()=>{
     const code=friendCodeForUid(user.uid);
     friendCode=code;
     el.textContent=code;
-    localStorage.setItem(scopedKey("nus_my_friend_code"),code);
     return true;
   }
 
   async function loadFriendCode(){
     const el=$("#myCode");
     if(!el)return;
-
-    const cached=localStorage.getItem(scopedKey("nus_my_friend_code"));
-    if(cached){
-      friendCode=cached;
-      el.textContent=cached;
-    }
 
     const user=window.nusFirebase?.user;
     if(!user){
