@@ -615,3 +615,10 @@ This is an independent personal student project and is not affiliated with or en
 - Friends page now initializes the shared app/modal controls, so the top-right X closes the modal.
 - Friend code is stored in page state and rendered instead of being reset to `Loading…` whenever the Friends UI re-renders.
 - Cached friend code is also preserved across re-renders.
+
+
+## V75 — Account data isolation
+- Switching Firebase accounts now resets the browser's local app state before loading the new account from Firestore.
+- A brand-new account starts with clean default modules/tasks/activities rather than inheriting the previous account's data.
+- Manual friends and friend-code caches are account-scoped; legacy manual-friend data is migrated only to the account that originally owned the browser's old unscoped data.
+- Notification/deletion history is cleared on account switches so it cannot leak between users.

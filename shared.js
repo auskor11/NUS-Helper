@@ -560,11 +560,12 @@ async function setupFirebaseAccount(){
     if(!remote){
       if(window.nusFirebase?.user){
         try{
+          // A brand-new account must start from clean defaults, never from
+          // another account's previous browser state.
           await window.nusFirebase.saveState(state);
-          toast("Your local data is now synced to Firebase.");
         }catch(err){
           console.error(err);
-          toast("Signed in, but Firestore could not save your data. Check Firestore rules.");
+          toast("Signed in, but Firestore could not initialize your account.");
         }
       }
       return;
@@ -618,9 +619,46 @@ async function setupFirebaseAccount(){
     if(cloudSyncStop) cloudSyncActive=true;
   };
 
+  function resetLocalStateForAccount(){
+    clearTimeout(cloudSaveTimer);
+    cloudSaveTimer=null;
+    lastLocalCloudChangeAt=0;
+    lastRemoteCloudChangeAt=0;
+
+    // Never carry the previous signed-in account's local app data into the
+    // next account. Firestore will restore the new account's state below.
+    state.modules=clone(DEFAULT_MODULES);
+    state.lessons=[];
+    state.activities=clone(defaultActivities);
+    state.tasks=clone(defaultTasks);
+    state.semester={academicYear:ACADEMIC_YEAR,semester:SEMESTER};
+
+    localStorage.setItem("nus_modules",JSON.stringify(state.modules));
+    localStorage.setItem("nus_lessons",JSON.stringify(state.lessons));
+    localStorage.setItem("nus_activities",JSON.stringify(state.activities));
+    localStorage.setItem("nus_tasks",JSON.stringify(state.tasks));
+    localStorage.setItem("nus_semester",JSON.stringify(state.semester));
+
+    // Account-specific notification/deletion history must not leak either.
+    localStorage.removeItem(NOTIFICATION_KEY);
+    localStorage.removeItem(DELETED_TASKS_KEY);
+    localStorage.removeItem(DELETED_ACTIVITIES_KEY);
+
+    window.dispatchEvent(new CustomEvent("nus-data-changed"));
+  }
+
   window.addEventListener("nus-auth-changed",e=>{
+    // Reset first, then load the newly authenticated user's Firestore state.
+    // This is what prevents Account B from briefly inheriting Account A's
+    // localStorage data.
+    resetLocalStateForAccount();
+
     if(e.detail) startRealtimeSync();
-    else if(cloudSyncStop){ cloudSyncStop(); cloudSyncStop=null; cloudSyncActive=false; }
+    else if(cloudSyncStop){
+      cloudSyncStop();
+      cloudSyncStop=null;
+      cloudSyncActive=false;
+    }
   });
 
   window.addEventListener("nus-cloud-state-applied",()=>{
