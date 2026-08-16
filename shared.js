@@ -619,14 +619,28 @@ async function setupFirebaseAccount(){
     if(cloudSyncStop) cloudSyncActive=true;
   };
 
+  const ACCOUNT_LOCAL_KEYS = [
+    "nus_modules","nus_lessons","nus_activities","nus_tasks","nus_semester",
+    "nus_manual_friends","nus_my_friend_code","nus_notification_log",
+    "nus_deleted_tasks","nus_deleted_activities"
+  ];
+
+  function purgeAccountLocalStorage(){
+    for(const key of ACCOUNT_LOCAL_KEYS) localStorage.removeItem(key);
+    const prefixes=["nus_manual_friends_","nus_my_friend_code_"];
+    for(let i=localStorage.length-1;i>=0;i--){
+      const key=localStorage.key(i)||"";
+      if(prefixes.some(prefix=>key.startsWith(prefix))) localStorage.removeItem(key);
+    }
+  }
+
   function resetLocalStateForAccount(){
     clearTimeout(cloudSaveTimer);
     cloudSaveTimer=null;
     lastLocalCloudChangeAt=0;
     lastRemoteCloudChangeAt=0;
+    purgeAccountLocalStorage();
 
-    // Never carry the previous signed-in account's local app data into the
-    // next account. Firestore will restore the new account's state below.
     state.modules=clone(DEFAULT_MODULES);
     state.lessons=[];
     state.activities=clone(defaultActivities);
@@ -638,21 +652,19 @@ async function setupFirebaseAccount(){
     localStorage.setItem("nus_activities",JSON.stringify(state.activities));
     localStorage.setItem("nus_tasks",JSON.stringify(state.tasks));
     localStorage.setItem("nus_semester",JSON.stringify(state.semester));
-
-    // Account-specific notification/deletion history must not leak either.
-    localStorage.removeItem(NOTIFICATION_KEY);
-    localStorage.removeItem(DELETED_TASKS_KEY);
-    localStorage.removeItem(DELETED_ACTIVITIES_KEY);
-
     window.dispatchEvent(new CustomEvent("nus-data-changed"));
   }
 
-  window.addEventListener("nus-auth-changed",e=>{
-    // Reset first, then load the newly authenticated user's Firestore state.
-    // This is what prevents Account B from briefly inheriting Account A's
-    // localStorage data.
+  let lastHandledAuthUid = "__uninitialized__";
+  function handleAccountBoundary(user){
+    const uid=user?.uid||null;
+    if(uid===lastHandledAuthUid) return;
+    lastHandledAuthUid=uid;
     resetLocalStateForAccount();
+  }
 
+  window.addEventListener("nus-auth-changed",e=>{
+    handleAccountBoundary(e.detail||null);
     if(e.detail) startRealtimeSync();
     else if(cloudSyncStop){
       cloudSyncStop();
@@ -666,10 +678,14 @@ async function setupFirebaseAccount(){
     window.dispatchEvent(new CustomEvent("nus-data-changed"));
   });
 
-  // initCommon runs after authentication has already resolved, so the
-  // auth-change event may have happened before this listener was installed.
-  // Start the realtime listener immediately for an already-authenticated user.
-  if(window.nusFirebase?.user) startRealtimeSync();
+  // Firebase can restore a user before this listener is installed.
+  // Handle that already-authenticated state explicitly.
+  if(window.nusFirebase?.user){
+    handleAccountBoundary(window.nusFirebase.user);
+    startRealtimeSync();
+  }else{
+    handleAccountBoundary(null);
+  }
 
   btn.addEventListener("click",async()=>{
     const api=window.nusFirebase;
@@ -704,7 +720,13 @@ async function setupFirebaseAccount(){
       });
 
       $("#signOutBtn")?.addEventListener("click",async()=>{
-        try{ await api.signOut(); closeModal(); update(); toast("Signed out."); }
+        try{
+          await api.signOut();
+          handleAccountBoundary(null);
+          closeModal();
+          update();
+          toast("Signed out.");
+        }
         catch(err){ console.error(err); toast(readableFirebaseError(err)); }
       });
       return;

@@ -622,3 +622,11 @@ This is an independent personal student project and is not affiliated with or en
 - A brand-new account starts with clean default modules/tasks/activities rather than inheriting the previous account's data.
 - Manual friends and friend-code caches are account-scoped; legacy manual-friend data is migrated only to the account that originally owned the browser's old unscoped data.
 - Notification/deletion history is cleared on account switches so it cannot leak between users.
+
+
+## V76 — Complete account-boundary reset
+- Purges all app-data localStorage keys whenever the Firebase account changes or signs out.
+- Purges old account-scoped friend-code/manual-friend caches during account switches.
+- Handles the case where Firebase restores a signed-in account before the page auth listener is installed.
+- Preserves UI-only preferences such as theme and calendar view.
+- New accounts are reset to clean defaults before their Firestore state is applied.
