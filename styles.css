@@ -664,3 +664,6 @@ body.sidebar-collapsed .main{margin-left:0;width:100%}
 
 .location-picker{display:grid;gap:6px}.location-picker .venue-search-box{display:flex;gap:8px}.location-picker .venue-search-box .modal-search{margin-top:0;flex:1;min-width:0}.location-picker .venue-results{max-height:220px;overflow:auto}
 .friend-code{font-size:1.6rem;font-weight:800;letter-spacing:.08em;margin-top:14px;font-family:ui-monospace,SFMono-Regular,Menlo,monospace}.small-help{font-size:.82rem;color:var(--muted);margin-top:10px}.friend-code+.small-help{margin-top:8px}
+
+.friend-card .lesson-summary>div{padding:10px 0;border-top:1px solid var(--border,#2a2f3a)}
+.friend-card .lesson-summary>div:first-child{border-top:0}

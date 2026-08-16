@@ -588,3 +588,11 @@ This is an independent personal student project and is not affiliated with or en
 - NUS Companion users can add each other with a private friend code and friend requests.
 - Accepted app friends are matched automatically by module, lesson type and class/group number.
 - Friend timetable matching reads a dedicated shared timetable only; tasks, activities and other private app data are not exposed.
+
+
+## V71 — Friends improvements
+- Fixed the Friends page friend-code loading race by updating the code after Firebase authentication becomes ready.
+- Manual friends can now have multiple shared lessons under one friend.
+- Friends are displayed as **friend name → all shared lessons**, rather than creating separate blocks for each lesson.
+- Adding another shared lesson to an existing manual friend updates the same friend record instead of creating a duplicate.
+- App friends continue to match automatically from shared timetable data.
