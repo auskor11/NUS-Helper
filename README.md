@@ -596,3 +596,9 @@ This is an independent personal student project and is not affiliated with or en
 - Friends are displayed as **friend name → all shared lessons**, rather than creating separate blocks for each lesson.
 - Adding another shared lesson to an existing manual friend updates the same friend record instead of creating a duplicate.
 - App friends continue to match automatically from shared timetable data.
+
+
+## V72 — Friends UI and loading fixes
+- Waits for Firebase initialization and the first auth-state callback before loading the friend code.
+- Fixes the manual shared-lesson checkbox layout so lesson text is fully visible.
+- Friends with more than two shared lessons show the first two by default, with View all / Collapse controls.

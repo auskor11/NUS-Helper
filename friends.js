@@ -3,6 +3,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   let friends=[];
   let requests=[];
   let stopFriends=null,stopRequests=null;
+  const expandedFriends=new Set();
 
   const lessonKey=l=>`${String(l.module||"").toUpperCase()}|${String(l.lessonType||"Class").toLowerCase()}|${String(l.classNo||l.ClassNo||"TBC").toUpperCase()}`;
   const lessonLabel=l=>`${l.module||"Unknown"} · ${l.lessonType||"Class"} ${l.classNo||l.ClassNo||"TBC"} · ${l.day||"Day TBC"} · ${inputTimeToLabel(l.startTime)} – ${inputTimeToLabel(l.endTime)}`;
@@ -37,11 +38,12 @@ document.addEventListener("DOMContentLoaded",()=>{
         <div class="item-row"><div><div class="item-title">${esc(x.friend.displayName||x.friend.name||"NUS Student")}</div><div class="item-sub">${esc(x.friend.friendCode||"Manual friend")}</div></div>
         <button class="ghost-btn danger-btn compact remove-friend" data-id="${esc(x.friend.uid)}" data-manual="${x.friend.manual?"1":"0"}">Remove</button></div>
         <div class="lesson-summary">
-          ${x.shared.map(l=>`<div><b>${esc(l.module||"")}</b> · ${esc(l.lessonType||"Class")} · Group ${esc(l.classNo||"TBC")}<br>
+          ${x.shared.slice(0,expandedFriends.has(x.friend.uid)?x.shared.length:2).map(l=>`<div><b>${esc(l.module||"")}</b> · ${esc(l.lessonType||"Class")} · Group ${esc(l.classNo||"TBC")}<br>
             <span>${esc(l.day||"Day TBC")} · ${inputTimeToLabel(l.startTime)} – ${inputTimeToLabel(l.endTime)}</span><br>
             <span>${mapLocationLink(l.venue||"")}</span>
           </div>`).join("")}
         </div>
+        ${x.shared.length>2?`<button class="secondary compact view-lessons-btn" data-id="${esc(x.friend.uid)}">${expandedFriends.has(x.friend.uid)?"Collapse":"View all"}</button>`:""}
       </div>`).join(""):`<div class="card"><div class="empty">No shared lessons yet. Add a friend to automatically find matching lessons.</div></div>`}</div>`;
 
     $("#manualFriend").onclick=openManualFriend;
@@ -63,6 +65,12 @@ document.addEventListener("DOMContentLoaded",()=>{
     $$(".reject-request").forEach(b=>b.onclick=async()=>{
       try{await window.nusFirebase.rejectFriendRequest({fromUid:b.dataset.id});toast("Request declined");}
       catch(e){toast(e.message||"Could not decline request");}
+    });
+
+    $$(".view-lessons-btn").forEach(b=>b.onclick=()=>{
+      if(expandedFriends.has(b.dataset.id)) expandedFriends.delete(b.dataset.id);
+      else expandedFriends.add(b.dataset.id);
+      render();
     });
 
     $$(".remove-friend").forEach(b=>b.onclick=async()=>{
@@ -183,26 +191,33 @@ document.addEventListener("DOMContentLoaded",()=>{
     loadManual();
     render();
 
-    window.addEventListener("nus-auth-changed",async()=>{
-      await loadFriendCode();
-      if(window.nusFirebase?.user && !stopFriends){
-        stopFriends=window.nusFirebase.listenFriends(list=>{
-          friends=[...friends.filter(f=>f.manual),...list.map(f=>({...f,lessons:[]}))];
-          render();
-          refreshFriendLessons();
-        },e=>console.error("Friends listener failed",e));
+    // Wait for Firebase initialization and its first auth-state callback.
+    // This prevents the friend code from remaining on "Loading…" because
+    // the page rendered before Firebase restored the signed-in user.
+    try{
+      if(window.nusFirebaseReady) await window.nusFirebaseReady;
+      if(window.nusAuthReady) await window.nusAuthReady;
+    }catch(e){
+      console.warn("Firebase readiness failed",e);
+    }
 
-        stopRequests=window.nusFirebase.listenFriendRequests(list=>{
-          requests=list;
-          render();
-        },e=>console.error("Friend requests listener failed",e));
+    await loadFriendCode();
 
+    if(window.nusFirebase?.user && !stopFriends){
+      stopFriends=window.nusFirebase.listenFriends(list=>{
+        friends=[...friends.filter(f=>f.manual),...list.map(f=>({...f,lessons:[]}))];
+        render();
         refreshFriendLessons();
-      }
-    });
+      },e=>console.error("Friends listener failed",e));
 
-    if(window.nusFirebase?.user){
-      await loadFriendCode();
+      stopRequests=window.nusFirebase.listenFriendRequests(list=>{
+        requests=list;
+        render();
+      },e=>console.error("Friend requests listener failed",e));
+
+      await refreshFriendLessons();
+    }else{
+      render();
     }
   }
 

@@ -667,3 +667,19 @@ body.sidebar-collapsed .main{margin-left:0;width:100%}
 
 .friend-card .lesson-summary>div{padding:10px 0;border-top:1px solid var(--border,#2a2f3a)}
 .friend-card .lesson-summary>div:first-child{border-top:0}
+
+/* V72 Friends fixes */
+.lesson-option input[type="checkbox"],
+.lesson-option input[type="radio"]{
+  width:auto!important;
+  min-width:16px;
+  flex:0 0 auto;
+  margin:3px 0 0 0!important;
+}
+.lesson-option{
+  width:100%;
+  box-sizing:border-box;
+}
+.view-lessons-btn{
+  margin-top:9px;
+}
