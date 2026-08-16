@@ -123,26 +123,18 @@ async function save(options={}){
   try{
     if(window.nusFirebaseReady) await window.nusFirebaseReady;
     if(window.nusAuthReady) await window.nusAuthReady;
-
     const api=window.nusFirebase;
-    if(!api?.configured || !api?.user){
-      throw new Error("You must be signed in to save.");
-    }
+    if(!api?.configured || !api?.user) throw new Error("You must be signed in to save.");
 
     clearTimeout(cloudSaveTimer);
     lastLocalCloudChangeAt=Date.now();
     const snapshot=clone(state);
-
-    const write=async()=>{
-      await api.saveState(snapshot);
-    };
+    const write=()=>api.saveState(snapshot);
 
     if(options.immediate){
       cloudWriteQueue=cloudWriteQueue.then(write,write);
       await cloudWriteQueue;
     }else{
-      // Keep the UI blocked while the short debounce runs, then wait for the
-      // actual Firestore write to complete.
       await new Promise((resolve,reject)=>{
         cloudSaveTimer=setTimeout(()=>{
           const queued=cloudWriteQueue.then(write,write);
@@ -151,15 +143,16 @@ async function save(options={}){
         },250);
       });
     }
-
     hideSaving(true);
+    return true;
   }catch(err){
-    console.error("Cloud save failed",err);
+    console.error("Cloud save failed:",err);
     hideSaving(false);
-    toast("Could not save to Firebase. Please try again.");
-    if(options.immediate) throw err;
+    toast("SAVE FAILED: " + (err?.message || "Unknown Firebase error"));
+    throw err;
   }
 }
+
 
 function esc(v=""){
   return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));

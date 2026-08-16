@@ -637,3 +637,9 @@ This is an independent personal student project and is not affiliated with or en
 - User interaction is blocked until the Firestore write completes.
 - Shows `Saved` briefly after a successful write, then returns control to the app.
 - Shows the normal Firebase save error toast if the write fails.
+
+
+## V82 — Reliable module persistence diagnostics
+- Module changes/deletions use immediate Firestore writes.
+- Save errors are no longer silently swallowed; the user sees `SAVE FAILED: ...`.
+- The saving overlay remains active until the Firestore write completes.
