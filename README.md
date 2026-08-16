@@ -630,3 +630,9 @@ This is an independent personal student project and is not affiliated with or en
 - Handles the case where Firebase restores a signed-in account before the page auth listener is installed.
 - Preserves UI-only preferences such as theme and calendar view.
 - New accounts are reset to clean defaults before their Firestore state is applied.
+
+
+## V77 — Stop home-page refresh loop
+- Removed the Home page's full `location.reload()` response to realtime data events.
+- Prevents the account-isolation reset from triggering an infinite page refresh loop.
+- Realtime sync remains enabled; other pages continue to update without full-page reloads.

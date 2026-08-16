@@ -35,7 +35,14 @@ document.addEventListener("DOMContentLoaded",()=>{
   // caused the popup to be missed on devices whose cloud data arrived later.
   initCommon().then(checkOverdue).catch(()=>checkOverdue());
   window.addEventListener("nus-cloud-state",checkOverdue,{once:true});
-  window.addEventListener("nus-data-changed",()=>window.location.reload());
+  // Do not reload the whole page on every realtime sync event.
+  // The old reload caused an infinite refresh loop because account-boundary
+  // state reset dispatches `nus-data-changed`, which reloaded home.html,
+  // which initialized sync again.
+  window.addEventListener("nus-data-changed",()=>{
+    // Other pages render their state directly. Home is intentionally left
+    // stable until the user navigates/reloads, preventing refresh loops.
+  });
 });
 
 function showOverduePopup(tasks){
