@@ -28,8 +28,6 @@ const defaultTasks = [
 function clone(v){ return JSON.parse(JSON.stringify(v)); }
 
 function read(key, fallback){
-  // V78: app data is no longer persisted in localStorage.
-  // Firestore is the single source of truth.
   return clone(fallback);
 }
 
@@ -48,42 +46,23 @@ let cloudSyncActive = false;
 let lastLocalCloudChangeAt = 0;
 let lastRemoteCloudChangeAt = 0;
 
-async function save(options={}){
-  // V79: Firestore is the only persistent store. Always wait for Firebase/auth
-  // to be ready instead of silently returning when auth restoration is still
-  // in progress.
-  try{
-    if(window.nusFirebaseReady) await window.nusFirebaseReady;
-    if(window.nusAuthReady) await window.nusAuthReady;
-
-    const api=window.nusFirebase;
-    if(!api?.configured || !api?.user){
-      throw new Error("You must be signed in before saving.");
-    }
-
-    lastLocalCloudChangeAt=Date.now();
-    clearTimeout(cloudSaveTimer);
-
-    if(options.immediate){
-      await api.saveState(state);
-      return;
-    }
-
-    cloudSaveTimer=setTimeout(async()=>{
-      try{
-        await api.saveState(state);
-      }catch(err){
-        console.error("Cloud save failed",err);
-        toast("Could not save to Firebase. Please try again.");
-      }
-    },350);
-  }catch(err){
-    console.error("Save failed",err);
-    toast(`Save failed: ${readableFirebaseError(err)}`);
-    throw err;
+function save(options={}){
+  if(!window.nusFirebase?.configured || !window.nusFirebase?.user){
+    const err=new Error("You must be signed in to save.");
+    console.warn(err.message);
+    return options.requireAuth ? Promise.reject(err) : Promise.resolve();
   }
+  clearTimeout(cloudSaveTimer);
+  lastLocalCloudChangeAt=Date.now();
+  const write=()=>window.nusFirebase.saveState(state).catch(err=>{
+    console.error("Cloud save failed",err);
+    toast("Cloud save failed. Please check your connection.");
+    throw err;
+  });
+  if(options.immediate) return write();
+  cloudSaveTimer=setTimeout(()=>write().catch(()=>{}),350);
+  return Promise.resolve();
 }
-
 function esc(v=""){
   return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 }
@@ -201,12 +180,12 @@ function setupSidebarControls(){
   const menuBtn=$("#menuBtn");
   if(!sidebar)return;
 
-  let collapsed=false;
+  const key="nus_sidebar_collapsed";
   const apply=()=>{
-    const isCollapsed=collapsed;
-    body.classList.toggle("sidebar-collapsed",isCollapsed);
-    if(openBtn) openBtn.hidden=!isCollapsed;
-    if(closeBtn) closeBtn.hidden=isCollapsed;
+    const collapsed=false;
+    body.classList.toggle("sidebar-collapsed",collapsed);
+    if(openBtn) openBtn.hidden=!collapsed;
+    if(closeBtn) closeBtn.hidden=collapsed;
   };
   const setMobileOpen=(open)=>{
     sidebar.classList.toggle("open",open);
@@ -220,16 +199,16 @@ function setupSidebarControls(){
   };
   closeBtn?.addEventListener("click",()=>{
     setMobileOpen(false);
-    collapsed=false;
+    
     apply();
   });
   openBtn?.addEventListener("click",()=>{
-    collapsed=false;
+    
     apply();
     setMobileOpen(true);
   });
   menuBtn?.addEventListener("click",()=>{
-    collapsed=false;
+    
     setMobileOpen(!sidebar.classList.contains("open"));
     apply();
   });
@@ -269,9 +248,9 @@ const DELETED_TASKS_KEY="nus_deleted_task_ids_v63";
 const DELETED_ACTIVITIES_KEY="nus_deleted_activity_ids_v63";
 
 function deletedIds(key){ return new Set(); }
-function saveDeletedIds(key,set){ /* V78: no local persistence. */ }
-function markDeletedId(key,id){ /* V78: deletion is persisted by saveState(). */ }
-function clearDeletedId(key,id){ /* V78: no local deletion ledger. */ }
+function saveDeletedIds(key,set){}
+function markDeletedId(key,id){}
+function clearDeletedId(key,id){}
 
 let notificationMemoryLog={};
 function notificationLog(){ return {...notificationMemoryLog}; }
@@ -558,12 +537,11 @@ async function setupFirebaseAccount(){
     if(!remote){
       if(window.nusFirebase?.user){
         try{
-          // A brand-new account must start from clean defaults, never from
-          // another account's previous browser state.
           await window.nusFirebase.saveState(state);
+          toast("Your local data is now synced to Firebase.");
         }catch(err){
           console.error(err);
-          toast("Signed in, but Firestore could not initialize your account.");
+          toast("Signed in, but Firestore could not save your data. Check Firestore rules.");
         }
       }
       return;
@@ -579,12 +557,8 @@ async function setupFirebaseAccount(){
     lastRemoteCloudChangeAt=remoteChangedAt || Date.now();
     if(Array.isArray(remote.modules)) state.modules=remote.modules;
     if(Array.isArray(remote.lessons)) state.lessons=remote.lessons;
-    if(Array.isArray(remote.activities)){
-      state.activities=remote.activities;
-    }
-    if(Array.isArray(remote.tasks)){
-      state.tasks=remote.tasks;
-    }
+    if(Array.isArray(remote.activities)) state.activities=remote.activities;
+    if(Array.isArray(remote.tasks)) state.tasks=remote.tasks;
     if(remote.semester) state.semester=remote.semester;
     if(Array.isArray(remote.manualFriends)) state.manualFriends=remote.manualFriends;
 
@@ -611,46 +585,9 @@ async function setupFirebaseAccount(){
     if(cloudSyncStop) cloudSyncActive=true;
   };
 
-  function resetLocalStateForAccount(){
-    clearTimeout(cloudSaveTimer);
-    cloudSaveTimer=null;
-    lastLocalCloudChangeAt=0;
-    lastRemoteCloudChangeAt=0;
-
-    // V78: no app data is stored locally. Reset only the in-memory state
-    // while Firebase changes accounts.
-    state.modules=clone(DEFAULT_MODULES);
-    state.lessons=[];
-    state.activities=clone(defaultActivities);
-    state.tasks=clone(defaultTasks);
-    state.semester={academicYear:ACADEMIC_YEAR,semester:SEMESTER};
-    state.manualFriends=[];
-
-    window.dispatchEvent(new CustomEvent("nus-data-changed"));
-  }
-
-  let lastHandledAuthUid = "__uninitialized__";
-  function handleAccountBoundary(user){
-    const uid=user?.uid||null;
-    if(uid===lastHandledAuthUid) return;
-    lastHandledAuthUid=uid;
-    resetLocalStateForAccount();
-  }
-  function handleAccountBoundary(user){
-    const uid=user?.uid||null;
-    if(uid===lastHandledAuthUid) return;
-    lastHandledAuthUid=uid;
-    resetLocalStateForAccount();
-  }
-
   window.addEventListener("nus-auth-changed",e=>{
-    handleAccountBoundary(e.detail||null);
     if(e.detail) startRealtimeSync();
-    else if(cloudSyncStop){
-      cloudSyncStop();
-      cloudSyncStop=null;
-      cloudSyncActive=false;
-    }
+    else if(cloudSyncStop){ cloudSyncStop(); cloudSyncStop=null; cloudSyncActive=false; }
   });
 
   window.addEventListener("nus-cloud-state-applied",()=>{
@@ -658,14 +595,10 @@ async function setupFirebaseAccount(){
     window.dispatchEvent(new CustomEvent("nus-data-changed"));
   });
 
-  // Firebase can restore a user before this listener is installed.
-  // Handle that already-authenticated state explicitly.
-  if(window.nusFirebase?.user){
-    handleAccountBoundary(window.nusFirebase.user);
-    startRealtimeSync();
-  }else{
-    handleAccountBoundary(null);
-  }
+  // initCommon runs after authentication has already resolved, so the
+  // auth-change event may have happened before this listener was installed.
+  // Start the realtime listener immediately for an already-authenticated user.
+  if(window.nusFirebase?.user) startRealtimeSync();
 
   btn.addEventListener("click",async()=>{
     const api=window.nusFirebase;
@@ -700,13 +633,7 @@ async function setupFirebaseAccount(){
       });
 
       $("#signOutBtn")?.addEventListener("click",async()=>{
-        try{
-          await api.signOut();
-          handleAccountBoundary(null);
-          closeModal();
-          // Firebase auth state has been cleared; take the user straight to login.
-          location.replace("/login.html");
-        }
+        try{ await api.signOut(); closeModal(); update(); toast("Signed out."); }
         catch(err){ console.error(err); toast(readableFirebaseError(err)); }
       });
       return;

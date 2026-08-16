@@ -617,43 +617,9 @@ This is an independent personal student project and is not affiliated with or en
 - Cached friend code is also preserved across re-renders.
 
 
-## V75 — Account data isolation
-- Switching Firebase accounts now resets the browser's local app state before loading the new account from Firestore.
-- A brand-new account starts with clean default modules/tasks/activities rather than inheriting the previous account's data.
-- Manual friends and friend-code caches are account-scoped; legacy manual-friend data is migrated only to the account that originally owned the browser's old unscoped data.
-- Notification/deletion history is cleared on account switches so it cannot leak between users.
-
-
-## V76 — Complete account-boundary reset
-- Purges all app-data localStorage keys whenever the Firebase account changes or signs out.
-- Purges old account-scoped friend-code/manual-friend caches during account switches.
-- Handles the case where Firebase restores a signed-in account before the page auth listener is installed.
-- Preserves UI-only preferences such as theme and calendar view.
-- New accounts are reset to clean defaults before their Firestore state is applied.
-
-
-## V77 — Stop home-page refresh loop
-- Removed the Home page's full `location.reload()` response to realtime data events.
-- Prevents the account-isolation reset from triggering an infinite page refresh loop.
-- Realtime sync remains enabled; other pages continue to update without full-page reloads.
-
-
-## V78 — Firebase-only persistence and sign-out
-- Sign out now immediately redirects to `login.html` after Firebase sign-out succeeds.
-- Removed app-data persistence from localStorage; Firestore is now the single source of truth for tasks, activities, modules, lessons, semester data, and manual friends.
-- Removed local deletion ledgers; task/activity deletions are persisted directly to the user's Firestore `appState/main` document.
-- Realtime cloud snapshots no longer re-apply deleted tasks or activities from local deletion markers.
-- Local UI caches for theme/calendar mode were also removed to satisfy the Firebase-only storage requirement.
-
-
-## V78 — Firebase-only persistence
-- App data is now memory-only in the browser; Firestore is the single persistent source of truth.
-- Tasks, activities, modules, lessons, semester data, and manual friends are saved to each user's Firestore `appState/main` document.
-- Removed local deletion ledgers so deleted tasks/activities cannot be resurrected by a stale browser cache.
-- Sign-out immediately redirects to the login page after Firebase completes sign-out.
-
-
-## V79 — Restore reliable Firebase saves
-- Save now waits for Firebase/auth initialization and fails visibly instead of silently doing nothing.
-- Immediate deletes await the Firestore write.
-- Private `appState/main` is now the authoritative save operation; a failure in the secondary shared timetable write cannot block private data from being saved.
+## V75 — Firebase-only app data experiment
+- Built from the stable V74 baseline.
+- Tasks, activities, modules, lessons, semester data, and manual friends no longer persist in localStorage.
+- Firestore `users/{uid}/appState/main` is the persistent source of truth.
+- Remote task/activity snapshots are authoritative, so deleted items are not restored from a local deletion ledger.
+- UI-only sidebar/theme/calendar preferences are also kept in memory for this experiment.
