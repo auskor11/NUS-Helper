@@ -158,19 +158,45 @@ document.addEventListener("DOMContentLoaded",()=>{
     };
   }
 
+  function friendCodeForUid(uid){
+    return `NUS-${String(uid||"").replace(/[^a-zA-Z0-9]/g,"").slice(-8).toUpperCase()}`;
+  }
+
+  function showFriendCodeImmediately(user){
+    const el=$("#myCode");
+    if(!el || !user?.uid)return false;
+
+    // The friend code is deterministic from the Firebase UID, so there is
+    // no reason to wait for Firestore before showing it.
+    const code=friendCodeForUid(user.uid);
+    el.textContent=code;
+    localStorage.setItem("nus_my_friend_code",code);
+    return true;
+  }
+
   async function loadFriendCode(){
     const el=$("#myCode");
     if(!el)return;
-    if(!window.nusFirebase?.user){
-      el.textContent="Sign in to get a friend code";
+
+    const cached=localStorage.getItem("nus_my_friend_code");
+    if(cached) el.textContent=cached;
+
+    const user=window.nusFirebase?.user;
+    if(!user){
+      if(!cached) el.textContent="Sign in to get a friend code";
       return;
     }
+
+    // Show the code first. Persisting the public profile happens in the
+    // background and no longer blocks the UI.
+    showFriendCodeImmediately(user);
+
     try{
-      const p=await window.nusFirebase.ensureFriendProfile();
-      el.textContent=p.friendCode;
+      await window.nusFirebase.ensureFriendProfile();
     }catch(e){
-      console.error("Friend code setup failed",e);
-      el.textContent="Unable to load friend code";
+      console.error("Friend profile setup failed",e);
+      // Keep displaying the deterministic code; Firestore can be retried
+      // on the next auth-state event.
     }
   }
 
@@ -220,6 +246,20 @@ document.addEventListener("DOMContentLoaded",()=>{
       render();
     }
   }
+
+  window.addEventListener("nus-auth-changed",async e=>{
+    const user=e.detail||window.nusFirebase?.user;
+    if(user){
+      showFriendCodeImmediately(user);
+      // Fire-and-forget profile creation/update. Do not delay the display.
+      try{ await window.nusFirebase.ensureFriendProfile(); }
+      catch(err){ console.warn("Friend profile setup failed",err); }
+      loadFriendCode();
+    }else{
+      const el=$("#myCode");
+      if(el) el.textContent="Sign in to get a friend code";
+    }
+  });
 
   window.addEventListener("nus-data-changed",()=>{
     loadManual();

@@ -602,3 +602,10 @@ This is an independent personal student project and is not affiliated with or en
 - Waits for Firebase initialization and the first auth-state callback before loading the friend code.
 - Fixes the manual shared-lesson checkbox layout so lesson text is fully visible.
 - Friends with more than two shared lessons show the first two by default, with View all / Collapse controls.
+
+
+## V73 — Friends timing and modal fixes
+- Friend code is generated and displayed immediately from the Firebase UID; Firestore profile creation runs in the background.
+- Cached friend code is shown instantly on repeat visits.
+- Firebase auth-state changes update the friend code without requiring a page refresh.
+- Fixed the Friends modal X button by actually initializing the shared modal controls.

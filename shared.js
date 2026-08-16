@@ -513,6 +513,7 @@ async function initCommon(){
   // scheduler. Do not run the old foreground/local notification scheduler,
   // otherwise one reminder can produce two notifications.
 
+  initModal();
   setupInstall();
   setupFirebaseAccount();
   if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", {updateViaCache:"none"}).then(r=>r.update()).catch(()=>{});
