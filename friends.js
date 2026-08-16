@@ -2,6 +2,7 @@ document.addEventListener("DOMContentLoaded",()=>{
   const view=document.querySelector(".view");
   let friends=[];
   let requests=[];
+  let friendCode="";
   let stopFriends=null,stopRequests=null;
   const expandedFriends=new Set();
 
@@ -18,6 +19,11 @@ document.addEventListener("DOMContentLoaded",()=>{
       if(shared.length)matches.push({friend:f,shared});
     }
 
+    const displayedFriendCode =
+      friendCode ||
+      localStorage.getItem("nus_my_friend_code") ||
+      "Loading…";
+
     view.innerHTML=`<div class="section-head">
       <div><h2>Friends</h2><div class="subtle">See which friends are in the same lesson or tutorial as you.</div></div>
       <div class="action-row"><button class="secondary" id="manualFriend">＋ Manual friend</button><button class="primary" id="addAppFriend">＋ Add app friend</button></div>
@@ -25,7 +31,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     <div class="card"><div class="item-row">
       <div><div class="item-title">Your friend code</div><div class="item-sub">Share this code with another NUS Companion user.</div></div>
       <button class="secondary compact" id="copyCode">Copy</button>
-    </div><div class="friend-code" id="myCode">Loading…</div></div>
+    </div><div class="friend-code" id="myCode">${esc(displayedFriendCode)}</div></div>
 
     ${requests.length?`<div class="section-head"><div><h3>Friend requests</h3></div></div>
     <div class="grid">${requests.map(r=>`<div class="card"><div class="item-title">${esc(r.fromName||"NUS Student")}</div><div class="item-sub">${esc(r.fromFriendCode||"")}</div>
@@ -169,6 +175,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     // The friend code is deterministic from the Firebase UID, so there is
     // no reason to wait for Firestore before showing it.
     const code=friendCodeForUid(user.uid);
+    friendCode=code;
     el.textContent=code;
     localStorage.setItem("nus_my_friend_code",code);
     return true;
@@ -179,7 +186,10 @@ document.addEventListener("DOMContentLoaded",()=>{
     if(!el)return;
 
     const cached=localStorage.getItem("nus_my_friend_code");
-    if(cached) el.textContent=cached;
+    if(cached){
+      friendCode=cached;
+      el.textContent=cached;
+    }
 
     const user=window.nusFirebase?.user;
     if(!user){
@@ -214,6 +224,9 @@ document.addEventListener("DOMContentLoaded",()=>{
   }
 
   async function init(){
+    // Friends page previously never called initCommon(), so the shared modal
+    // close button (#modalClose) was never wired up.
+    await initCommon();
     loadManual();
     render();
 
@@ -256,6 +269,7 @@ document.addEventListener("DOMContentLoaded",()=>{
       catch(err){ console.warn("Friend profile setup failed",err); }
       loadFriendCode();
     }else{
+      friendCode="";
       const el=$("#myCode");
       if(el) el.textContent="Sign in to get a friend code";
     }

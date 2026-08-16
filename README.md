@@ -609,3 +609,9 @@ This is an independent personal student project and is not affiliated with or en
 - Cached friend code is shown instantly on repeat visits.
 - Firebase auth-state changes update the friend code without requiring a page refresh.
 - Fixed the Friends modal X button by actually initializing the shared modal controls.
+
+
+## V74 — Friends page startup and friend-code persistence fix
+- Friends page now initializes the shared app/modal controls, so the top-right X closes the modal.
+- Friend code is stored in page state and rendered instead of being reset to `Loading…` whenever the Friends UI re-renders.
+- Cached friend code is also preserved across re-renders.
