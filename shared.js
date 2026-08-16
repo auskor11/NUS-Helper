@@ -48,31 +48,40 @@ let cloudSyncActive = false;
 let lastLocalCloudChangeAt = 0;
 let lastRemoteCloudChangeAt = 0;
 
-function save(options={}){
-  // V78: Firebase/Firestore is the only persistence layer for app data.
-  // Keep state in memory, then write the complete snapshot to the signed-in
-  // user's Firestore document. Deletes use {immediate:true} so they cannot
-  // be lost behind the debounce.
-  if(window.nusFirebase?.configured && window.nusFirebase?.user){
+async function save(options={}){
+  // V79: Firestore is the only persistent store. Always wait for Firebase/auth
+  // to be ready instead of silently returning when auth restoration is still
+  // in progress.
+  try{
+    if(window.nusFirebaseReady) await window.nusFirebaseReady;
+    if(window.nusAuthReady) await window.nusAuthReady;
+
+    const api=window.nusFirebase;
+    if(!api?.configured || !api?.user){
+      throw new Error("You must be signed in before saving.");
+    }
+
     lastLocalCloudChangeAt=Date.now();
     clearTimeout(cloudSaveTimer);
+
     if(options.immediate){
-      return window.nusFirebase.saveState(state).catch(err=>{
-        console.error("Cloud save failed",err);
-        toast("Cloud save failed. Please check your connection.");
-        throw err;
-      });
+      await api.saveState(state);
+      return;
     }
-    cloudSaveTimer=setTimeout(()=>{
-      window.nusFirebase.saveState(state).catch(err=>{
+
+    cloudSaveTimer=setTimeout(async()=>{
+      try{
+        await api.saveState(state);
+      }catch(err){
         console.error("Cloud save failed",err);
-        toast("Cloud save failed. Please check your connection.");
-      });
+        toast("Could not save to Firebase. Please try again.");
+      }
     },350);
-  }else if(options.requireAuth){
-    return Promise.reject(new Error("You must be signed in to save data."));
+  }catch(err){
+    console.error("Save failed",err);
+    toast(`Save failed: ${readableFirebaseError(err)}`);
+    throw err;
   }
-  return Promise.resolve();
 }
 
 function esc(v=""){

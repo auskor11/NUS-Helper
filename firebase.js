@@ -135,6 +135,7 @@
             email:api.user.email || null,
             updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
           },{merge:true});
+          // This is the authoritative private app-state write.
           await userRef.collection("appState").doc("main").set({
             modules:snapshot.modules||[],
             lessons:snapshot.lessons||[],
@@ -145,12 +146,17 @@
             clientUpdatedAt:Date.now(),
             updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
           },{merge:true});
-          // Only timetable data is shared with accepted app friends. Private
-          // tasks, activities, expenses, etc. remain in appState/main.
-          await userRef.collection("sharedTimetable").doc("main").set({
-            lessons:snapshot.lessons||[],
-            updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
-          },{merge:true});
+
+          // Timetable sharing is secondary. A restrictive sharedTimetable
+          // Firestore rule must never prevent the user's own data from saving.
+          try{
+            await userRef.collection("sharedTimetable").doc("main").set({
+              lessons:snapshot.lessons||[],
+              updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
+            },{merge:true});
+          }catch(sharedErr){
+            console.warn("Shared timetable update failed; private app state was saved.",sharedErr);
+          }
         },
         async loadState(){
           if(!api.user)return null;

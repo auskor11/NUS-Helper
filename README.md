@@ -651,3 +651,9 @@ This is an independent personal student project and is not affiliated with or en
 - Tasks, activities, modules, lessons, semester data, and manual friends are saved to each user's Firestore `appState/main` document.
 - Removed local deletion ledgers so deleted tasks/activities cannot be resurrected by a stale browser cache.
 - Sign-out immediately redirects to the login page after Firebase completes sign-out.
+
+
+## V79 — Restore reliable Firebase saves
+- Save now waits for Firebase/auth initialization and fails visibly instead of silently doing nothing.
+- Immediate deletes await the Firestore write.
+- Private `appState/main` is now the authoritative save operation; a failure in the secondary shared timetable write cannot block private data from being saved.
