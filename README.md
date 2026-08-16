@@ -593,3 +593,9 @@ This is an independent personal student project and is not affiliated with or en
 ## V85 fixes
 - Fixed Home page refresh loop caused by reloading on every `nus-data-changed` event.
 - Fixed Remove All Modules to wait for the Firebase save before confirming success and to restore the previous state if the save fails.
+
+
+## V86 — Mobile calendar fix
+- Fixed the Month calendar overflowing horizontally on mobile.
+- Removed the 760px mobile minimum width and made all seven columns fit the viewport.
+- Reduced mobile calendar spacing/font sizes and constrained event text to prevent cells from expanding.
