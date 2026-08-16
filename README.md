@@ -581,3 +581,15 @@ This is an independent personal student project and is not affiliated with or en
 - If no NUSMods venue matches, the search falls back to external maps (Google Places when configured, then OpenStreetMap/Photon).
 - Selected location source and coordinates are saved with the activity.
 - Existing activity locations remain compatible and can still be edited.
+
+
+## V85 — NUSMods timetable-link import
+- Added direct import from NUSMods Share timetable URLs.
+- Parses module/class selections and ignores the `hidden` parameter.
+- Fetches published NUSMods timetable data and matches selected lesson groups.
+- Replaces only modules present in the imported link; unrelated modules are retained.
+
+
+## V85 fixes
+- Fixed Home page refresh loop caused by reloading on every `nus-data-changed` event.
+- Fixed Remove All Modules to wait for the Firebase save before confirming success and to restore the previous state if the save fails.

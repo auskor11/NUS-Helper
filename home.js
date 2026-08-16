@@ -35,7 +35,12 @@ document.addEventListener("DOMContentLoaded",()=>{
   // caused the popup to be missed on devices whose cloud data arrived later.
   initCommon().then(checkOverdue).catch(()=>checkOverdue());
   window.addEventListener("nus-cloud-state",checkOverdue,{once:true});
-  window.addEventListener("nus-data-changed",()=>window.location.reload());
+  // Firebase sync can dispatch nus-data-changed more than once. Do not
+  // hard-reload the Home page here, otherwise realtime sync creates a
+  // refresh loop and the user cannot interact with the page.
+  window.addEventListener("nus-data-changed",()=>{
+    checkOverdue();
+  });
 });
 
 function showOverduePopup(tasks){

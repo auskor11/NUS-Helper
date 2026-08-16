@@ -8,7 +8,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     view.innerHTML=`
       <div class="section-head">
         <div><h2>Your modules</h2><div class="subtle">AY ${esc(state.semester.academicYear)} · Semester ${esc(state.semester.semester)}</div></div>
-        <div class="action-row"><button class="primary" id="addModule">＋ Add module</button><button class="secondary" id="importModules">↻ Import from NUSMods</button></div>
+        <div class="action-row"><button class="primary" id="addModule">＋ Add module</button><button class="secondary" id="importModules">↻ Import from NUSMods</button><button class="secondary" id="importNUSModsLink">🔗 Import timetable link</button></div>
       </div>
       <div class="grid">${state.modules.length?state.modules.map((m,i)=>`
         <div class="card">
@@ -23,9 +23,25 @@ document.addEventListener("DOMContentLoaded",()=>{
 
     $("#addModule").onclick=openManualModule;
     $("#importModules").onclick=openImporter;
-    $("#removeAll")?.addEventListener("click",()=>{
-      if(confirm("Remove ALL modules and timetable entries? Tasks and activities will NOT be deleted.")){
-        state.modules=[]; state.lessons=[]; save(); render(); toast("All modules removed");
+    $("#importNUSModsLink").onclick=openNUSModsLinkImporter;
+    $("#removeAll")?.addEventListener("click",async()=>{
+      if(!confirm("Remove ALL modules and timetable entries? Tasks and activities will NOT be deleted.")) return;
+
+      const previousModules=state.modules;
+      const previousLessons=state.lessons;
+      state.modules=[];
+      state.lessons=[];
+
+      try{
+        await save({immediate:true});
+        render();
+        toast("All modules removed");
+      }catch(err){
+        // Restore the in-memory state if Firestore rejected the deletion.
+        state.modules=previousModules;
+        state.lessons=previousLessons;
+        render();
+        toast("Could not remove all modules. Your data was not changed in Firebase.");
       }
     });
   }
@@ -261,6 +277,123 @@ document.addEventListener("DOMContentLoaded",()=>{
       e.preventDefault(); const f=new FormData(e.target),code=String(f.get("code")).trim().toUpperCase(),name=String(f.get("name")).trim();
       if(state.modules.some(m=>m.code===code)){toast("That module is already added");return;}
       state.modules.push({code,name}); save(); closeModal(); render();
+    };
+  }
+
+  // Parse NUSMods Share timetable links such as:
+  // ?CS1101S=REC:09A,TUT:08B,LEC:1&CS1231S=TUT:13A,LEC:1&hidden=...
+  function parseNUSModsTimetableLink(raw){
+    let url;
+    try{ url=new URL(String(raw||"").trim()); }
+    catch{ throw new Error("That is not a valid URL. Please paste the full NUSMods timetable link."); }
+
+    if(!/(^|\.)nusmods\.com$/i.test(url.hostname)){
+      throw new Error("Please paste a timetable link from nusmods.com.");
+    }
+
+    const parts=[];
+    for(const [code,value] of url.searchParams.entries()){
+      if(code.toLowerCase()==="hidden") continue;
+      const lessons=String(value||"").split(",").map(token=>{
+        const i=token.indexOf(":");
+        return i>0
+          ? {raw:token,type:token.slice(0,i).trim().toUpperCase(),classNo:token.slice(i+1).trim()}
+          : {raw:token,type:token.trim().toUpperCase(),classNo:""};
+      }).filter(x=>x.type);
+      if(lessons.length) parts.push({code:code.trim().toUpperCase(),lessons});
+    }
+    if(!parts.length) throw new Error("No module selections were found in that NUSMods link.");
+    return parts;
+  }
+
+  function nusModsTypeMatches(type, lessonType){
+    const a=String(type||"").toUpperCase();
+    const b=String(lessonType||"").toUpperCase().replace(/[^A-Z]/g,"");
+    const aliases={
+      LEC:["LECTURE","LEC"], TUT:["TUTORIAL","TUT"], REC:["RECITATION","REC"],
+      LAB:["LABORATORY","LAB"], SEC:["SECTION","SEC"], SEM:["SEMINAR","SEM"]
+    };
+    return (aliases[a]||[a]).some(x=>b===x || b.startsWith(x));
+  }
+
+  async function importNUSModsTimetableLink(raw){
+    const selections=parseNUSModsTimetableLink(raw);
+    const results=[], failures=[];
+
+    openModal(`<h2>Importing NUSMods timetable</h2><div id="nusLinkProgress" class="import-box"><div class="spinner"></div>Preparing ${selections.length} modules…</div>`);
+
+    for(let i=0;i<selections.length;i++){
+      const item=selections[i], progress=$("#nusLinkProgress");
+      if(progress) progress.innerHTML=`<div class="spinner"></div>Loading <b>${esc(item.code)}</b> (${i+1}/${selections.length})…`;
+      try{
+        const rawData=await fetchNUSModsModule(item.code);
+        const data=normaliseLessonData(rawData,item.code);
+        const chosen=[];
+        for(const wanted of item.lessons){
+          const matches=data.timetable.filter(l=>
+            nusModsTypeMatches(wanted.type,l.lessonType) &&
+            String(l.classNo||"").trim().toUpperCase()===wanted.classNo.toUpperCase()
+          );
+          if(matches.length) chosen.push(...matches);
+          else failures.push(`${item.code}: ${wanted.raw} was not found`);
+        }
+
+        const unique=[],seen=new Set();
+        for(const lesson of chosen){
+          const key=[lesson.lessonType,lesson.classNo,lesson.day,lesson.startTime,lesson.endTime,lesson.venue].join("|");
+          if(!seen.has(key)){seen.add(key);unique.push(lesson);}
+        }
+        if(unique.length) results.push({code:item.code,name:data.title||moduleName(item.code),lessons:unique});
+        else failures.push(`${item.code}: no matching classes could be imported`);
+      }catch(e){ failures.push(`${item.code}: ${e.message}`); }
+    }
+
+    if(!results.length){
+      openModal(`<h2>Import failed</h2><div class="error-box">${esc(failures.join(" · ")||"No modules could be imported.")}</div><div class="modal-footer"><button class="secondary" id="closeNUSLinkImport">Close</button></div>`);
+      $("#closeNUSLinkImport").onclick=closeModal;
+      return;
+    }
+
+    const importedCodes=new Set(results.map(x=>x.code));
+    state.modules=(state.modules||[]).filter(m=>!importedCodes.has(String(m.code).toUpperCase()));
+    state.lessons=(state.lessons||[]).filter(l=>!importedCodes.has(String(l.module||"").toUpperCase()));
+
+    let lessonId=Date.now();
+    for(const result of results){
+      state.modules.push({code:result.code,name:result.name});
+      result.lessons.forEach(lesson=>state.lessons.push({...lesson,module:result.code,id:`${result.code}-import-${lessonId++}`}));
+    }
+
+    try{ await save({immediate:true}); }
+    catch{ render(); return; }
+
+    const lessonCount=results.reduce((n,x)=>n+x.lessons.length,0);
+    openModal(`
+      <h2>Timetable imported ✓</h2>
+      <p class="small-help">Imported <b>${results.length}</b> module${results.length===1?"":"s"} and <b>${lessonCount}</b> lesson entries from NUSMods.</p>
+      ${failures.length?`<div class="error-box"><b>Some selections could not be matched:</b><br>${failures.map(esc).join("<br>")}</div>`:`<div class="success-box">All selected classes were matched successfully.</div>`}
+      <div class="modal-footer"><button class="primary" id="closeNUSLinkSuccess">Done</button></div>
+    `);
+    $("#closeNUSLinkSuccess").onclick=()=>{closeModal();render();};
+  }
+
+  function openNUSModsLinkImporter(){
+    openModal(`
+      <h2>Import NUSMods timetable link</h2>
+      <p class="small-help">Paste a NUSMods <b>Share</b> timetable link. The selected modules and class groups will be imported automatically.</p>
+      <label class="form-label">NUSMods timetable link
+        <textarea id="nusModsLinkInput" class="modal-search" rows="4" placeholder="https://nusmods.com/timetable/sem-1/share?..."></textarea>
+      </label>
+      <div class="small-help">The <code>hidden</code> parameter is ignored. Existing modules with the same code will be replaced by the imported selections; unrelated modules stay unchanged.</div>
+      <div id="nusLinkError"></div>
+      <div class="modal-footer"><button class="secondary" id="cancelNUSLink">Cancel</button><button class="primary" id="startNUSLink">Import timetable</button></div>
+    `);
+    $("#cancelNUSLink").onclick=closeModal;
+    $("#startNUSLink").onclick=async()=>{
+      const raw=$("#nusModsLinkInput")?.value.trim(), error=$("#nusLinkError");
+      try{ parseNUSModsTimetableLink(raw); }
+      catch(e){ if(error) error.innerHTML=`<div class="error-box">${esc(e.message)}</div>`; return; }
+      await importNUSModsTimetableLink(raw);
     };
   }
 
