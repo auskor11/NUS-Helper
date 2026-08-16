@@ -45,24 +45,122 @@ let cloudSyncStop = null;
 let cloudSyncActive = false;
 let lastLocalCloudChangeAt = 0;
 let lastRemoteCloudChangeAt = 0;
+let cloudWriteQueue = Promise.resolve();
+let saveOverlayEl = null;
+let saveOverlayCount = 0;
 
-function save(options={}){
-  if(!window.nusFirebase?.configured || !window.nusFirebase?.user){
-    const err=new Error("You must be signed in to save.");
-    console.warn(err.message);
-    return options.requireAuth ? Promise.reject(err) : Promise.resolve();
-  }
-  clearTimeout(cloudSaveTimer);
-  lastLocalCloudChangeAt=Date.now();
-  const write=()=>window.nusFirebase.saveState(state).catch(err=>{
-    console.error("Cloud save failed",err);
-    toast("Cloud save failed. Please check your connection.");
-    throw err;
+function ensureSaveOverlay(){
+  if(saveOverlayEl) return saveOverlayEl;
+  saveOverlayEl=document.createElement("div");
+  saveOverlayEl.id="firebaseSaveOverlay";
+  saveOverlayEl.innerHTML=`
+    <div class="firebase-save-card" role="status" aria-live="polite">
+      <div class="firebase-save-spinner" aria-hidden="true"></div>
+      <div class="firebase-save-title">Saving...</div>
+      <div class="firebase-save-subtitle">Please wait while your changes are saved.</div>
+    </div>`;
+  Object.assign(saveOverlayEl.style,{
+    position:"fixed",inset:"0",zIndex:"2147483647",
+    display:"none",alignItems:"center",justifyContent:"center",
+    background:"rgba(0,0,0,.38)",backdropFilter:"blur(3px)",
+    pointerEvents:"auto"
   });
-  if(options.immediate) return write();
-  cloudSaveTimer=setTimeout(()=>write().catch(()=>{}),350);
-  return Promise.resolve();
+  const style=document.createElement("style");
+  style.textContent=`
+    #firebaseSaveOverlay .firebase-save-card{
+      width:min(340px,calc(100vw - 40px));
+      box-sizing:border-box;padding:24px 22px;border-radius:16px;
+      background:var(--card-bg,#fff);color:var(--text,#111);
+      box-shadow:0 12px 40px rgba(0,0,0,.22);text-align:center;
+      font-family:inherit;
+    }
+    #firebaseSaveOverlay .firebase-save-spinner{
+      width:30px;height:30px;margin:0 auto 14px;
+      border:3px solid rgba(128,128,128,.28);
+      border-top-color:currentColor;border-radius:50%;
+      animation:firebaseSaveSpin .8s linear infinite;
+    }
+    #firebaseSaveOverlay .firebase-save-title{font-size:18px;font-weight:700}
+    #firebaseSaveOverlay .firebase-save-subtitle{
+      margin-top:7px;font-size:13px;opacity:.72;line-height:1.4
+    }
+    #firebaseSaveOverlay.saved .firebase-save-spinner{display:none}
+    #firebaseSaveOverlay.saved .firebase-save-title::before{content:"✓ "}
+    @keyframes firebaseSaveSpin{to{transform:rotate(360deg)}}
+  `;
+  document.head.appendChild(style);
+  document.body.appendChild(saveOverlayEl);
+  return saveOverlayEl;
 }
+
+function showSaving(){
+  const el=ensureSaveOverlay();
+  saveOverlayCount++;
+  el.classList.remove("saved");
+  el.querySelector(".firebase-save-title").textContent="Saving...";
+  el.querySelector(".firebase-save-subtitle").textContent="Please wait while your changes are saved.";
+  el.style.display="flex";
+}
+
+function hideSaving(saved=true){
+  saveOverlayCount=Math.max(0,saveOverlayCount-1);
+  if(saveOverlayCount>0) return;
+  const el=ensureSaveOverlay();
+  if(saved){
+    el.classList.add("saved");
+    el.querySelector(".firebase-save-title").textContent="Saved";
+    el.querySelector(".firebase-save-subtitle").textContent="Your changes have been saved.";
+    setTimeout(()=>{
+      if(saveOverlayCount===0) el.style.display="none";
+    },500);
+  }else{
+    el.style.display="none";
+  }
+}
+
+async function save(options={}){
+  showSaving();
+  try{
+    if(window.nusFirebaseReady) await window.nusFirebaseReady;
+    if(window.nusAuthReady) await window.nusAuthReady;
+
+    const api=window.nusFirebase;
+    if(!api?.configured || !api?.user){
+      throw new Error("You must be signed in to save.");
+    }
+
+    clearTimeout(cloudSaveTimer);
+    lastLocalCloudChangeAt=Date.now();
+    const snapshot=clone(state);
+
+    const write=async()=>{
+      await api.saveState(snapshot);
+    };
+
+    if(options.immediate){
+      cloudWriteQueue=cloudWriteQueue.then(write,write);
+      await cloudWriteQueue;
+    }else{
+      // Keep the UI blocked while the short debounce runs, then wait for the
+      // actual Firestore write to complete.
+      await new Promise((resolve,reject)=>{
+        cloudSaveTimer=setTimeout(()=>{
+          const queued=cloudWriteQueue.then(write,write);
+          cloudWriteQueue=queued;
+          queued.then(resolve).catch(reject);
+        },250);
+      });
+    }
+
+    hideSaving(true);
+  }catch(err){
+    console.error("Cloud save failed",err);
+    hideSaving(false);
+    toast("Could not save to Firebase. Please try again.");
+    if(options.immediate) throw err;
+  }
+}
+
 function esc(v=""){
   return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
 }

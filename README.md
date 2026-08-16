@@ -623,3 +623,17 @@ This is an independent personal student project and is not affiliated with or en
 - Firestore `users/{uid}/appState/main` is the persistent source of truth.
 - Remote task/activity snapshots are authoritative, so deleted items are not restored from a local deletion ledger.
 - UI-only sidebar/theme/calendar preferences are also kept in memory for this experiment.
+
+
+## V81 — Reliable Firebase writes
+- Firebase saves now wait for Firebase initialization and auth restoration before writing.
+- Firestore writes are serialized so rapid edits cannot race and overwrite each other with an older snapshot.
+- Normal edits are debounced briefly; destructive operations can await an immediate Firestore write.
+- Shared timetable sync is best-effort and cannot make private app-state saves fail.
+
+
+## V81 update — Save status overlay
+- Shows a blocking `Saving...` overlay whenever app changes are being written to Firestore.
+- User interaction is blocked until the Firestore write completes.
+- Shows `Saved` briefly after a successful write, then returns control to the app.
+- Shows the normal Firebase save error toast if the write fails.
