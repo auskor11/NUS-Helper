@@ -604,3 +604,10 @@ This is an independent personal student project and is not affiliated with or en
 ## V86 — Safari installed-app cache fix
 - Added stylesheet cache-busting (`styles.css?v=86`) to all app pages.
 - Updated the service worker version and refreshes controlled clients once when the new worker activates, helping Safari installed PWAs pick up new CSS/HTML.
+
+
+## V87 — Calendar day details
+- Month-view dates are now clickable/tappable.
+- Tapping a date opens a popup listing all tasks due and all activities occurring on that day.
+- The month cells still show a compact preview, with a `+N more` indicator when needed.
+- Popup items include task time/module and activity time/club/location where available.

@@ -15,6 +15,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     $("#weekBtn")?.addEventListener("click",()=>{mode="week";localStorage.setItem("nus_calendar_mode",mode);render();});
     $("#monthBtn")?.addEventListener("click",()=>{mode="month";localStorage.setItem("nus_calendar_mode",mode);render();});
     initToolbar();
+    if(mode==="month") initMonthDayClicks();
   }
 
   function initToolbar(){
@@ -98,7 +99,76 @@ document.addEventListener("DOMContentLoaded",()=>{
     const inMonth=d.getMonth()===monthCursor.getMonth();
     const tasks=state.tasks.filter(t=>t.dueDate===isoDate(d));
     const acts=state.activities.filter(a=>activityOccursOnDate(a,d));
-    return `<div class="month-day ${inMonth?"":"muted"} ${sameDay(d,new Date())?"today":""}"><div class="day-num">${d.getDate()}</div>${tasks.slice(0,3).map(t=>`<div class="cal-event task-event">✓ ${esc(t.title)}<small>${inputTimeToLabel(t.dueTime)}</small></div>`).join("")}${acts.slice(0,3).map(a=>`<div class="cal-event activity-cal">◎ ${esc(a.name)}${a.venue?`<small>${mapLocationLink(a.venue)}</small>`:""}</div>`).join("")}</div>`;
+    const total=tasks.length+acts.length;
+    const previewLimit=3;
+    const previewTasks=tasks.slice(0,previewLimit);
+    const remaining=Math.max(0,total-previewTasks.length);
+    return `<div class="month-day month-day-clickable ${inMonth?"":"muted"} ${sameDay(d,new Date())?"today":""}" data-calendar-date="${isoDate(d)}" role="button" tabindex="0" aria-label="View ${esc(d.toLocaleDateString("en-SG",{day:"numeric",month:"long",year:"numeric"}))}">
+      <div class="day-num">${d.getDate()}</div>
+      ${previewTasks.map(t=>`<div class="cal-event task-event">✓ ${esc(t.title)}<small>${inputTimeToLabel(t.dueTime)}</small></div>`).join("")}
+      ${acts.slice(0,Math.max(0,previewLimit-previewTasks.length)).map(a=>`<div class="cal-event activity-cal">◎ ${esc(a.name)}${a.venue?`<small>${mapLocationLink(a.venue)}</small>`:""}</div>`).join("")}
+      ${remaining>0?`<div class="cal-more">+${remaining} more</div>`:""}
+    </div>`;
+  }
+
+  function initMonthDayClicks(){
+    document.querySelectorAll(".month-day-clickable").forEach(cell=>{
+      const open=()=>{
+        const date=cell.dataset.calendarDate;
+        const d=new Date(`${date}T12:00:00`);
+        openDayDetails(d);
+      };
+      cell.addEventListener("click",open);
+      cell.addEventListener("keydown",e=>{
+        if(e.key==="Enter"||e.key===" "){
+          e.preventDefault();
+          open();
+        }
+      });
+    });
+  }
+
+  function openDayDetails(d){
+    const dateLabel=d.toLocaleDateString("en-SG",{
+      weekday:"long",day:"numeric",month:"long",year:"numeric"
+    });
+    const tasks=state.tasks
+      .filter(t=>t.dueDate===isoDate(d))
+      .sort((a,b)=>String(a.dueTime||"23:59").localeCompare(String(b.dueTime||"23:59")));
+    const acts=state.activities
+      .filter(a=>activityOccursOnDate(a,d))
+      .sort((a,b)=>String(a.startTime||"").localeCompare(String(b.startTime||"")));
+
+    const taskHTML=tasks.length?tasks.map(t=>`
+      <div class="calendar-day-item task-day-item">
+        <div class="calendar-day-item-icon">✓</div>
+        <div class="calendar-day-item-main">
+          <b>${esc(t.title)}</b>
+          <small>${t.dueTime?`Due ${inputTimeToLabel(t.dueTime)}`:"No time set"}${t.module?` · ${esc(t.module)}`:""}</small>
+        </div>
+      </div>`).join(""):`<div class="calendar-day-empty">No tasks due.</div>`;
+
+    const activityHTML=acts.length?acts.map(a=>`
+      <div class="calendar-day-item activity-day-item">
+        <div class="calendar-day-item-icon">◎</div>
+        <div class="calendar-day-item-main">
+          <b>${esc(a.name)}</b>
+          <small>${a.startTime&&a.endTime?`${inputTimeToLabel(a.startTime)} – ${inputTimeToLabel(a.endTime)}`:"Time not set"}${a.club?` · ${esc(a.club)}`:""}</small>
+          ${a.venue?`<small>${mapLocationLink(a.venue)}</small>`:""}
+        </div>
+      </div>`).join(""):`<div class="calendar-day-empty">No activities.</div>`;
+
+    openModal(`
+      <h2>${esc(dateLabel)}</h2>
+      <div class="calendar-day-section">
+        <h3>Tasks <span>${tasks.length}</span></h3>
+        <div class="calendar-day-list">${taskHTML}</div>
+      </div>
+      <div class="calendar-day-section">
+        <h3>Activities <span>${acts.length}</span></h3>
+        <div class="calendar-day-list">${activityHTML}</div>
+      </div>
+    `);
   }
 
   window.addEventListener("nus-data-changed",()=>render());
