@@ -25,14 +25,14 @@ document.addEventListener("DOMContentLoaded",()=>{
     $("#importModules").onclick=openImporter;
     $("#removeAll")?.addEventListener("click",()=>{
       if(confirm("Remove ALL modules and timetable entries? Tasks and activities will NOT be deleted.")){
-        state.modules=[]; state.lessons=[]; save({immediate:true}).then(()=>{render(); toast("All modules removed");}).catch(()=>render());
+        state.modules=[]; state.lessons=[]; save(); render(); toast("All modules removed");
       }
     });
   }
 
   window.deleteModule=i=>{
     const code=state.modules[i]?.code; if(!code)return;
-    state.modules.splice(i,1); state.lessons=state.lessons.filter(l=>l.module!==code); save({immediate:true}).then(()=>{render(); toast(`${code} removed`);}).catch(()=>render());
+    state.modules.splice(i,1); state.lessons=state.lessons.filter(l=>l.module!==code); save(); render(); toast(`${code} removed`);
   };
 
   window.editModule=function(i,passedDraft=null){
@@ -150,7 +150,7 @@ document.addEventListener("DOMContentLoaded",()=>{
         ...updated
       ];
 
-      save({immediate:true}).then(()=>{ closeModal(); render(); toast(`${mod.code} updated`); }).catch(()=>{});
+      save(); closeModal(); render(); toast(`${mod.code} updated`);
     };
   };
 
@@ -260,7 +260,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     $("#manualModuleForm").onsubmit=e=>{
       e.preventDefault(); const f=new FormData(e.target),code=String(f.get("code")).trim().toUpperCase(),name=String(f.get("name")).trim();
       if(state.modules.some(m=>m.code===code)){toast("That module is already added");return;}
-      state.modules.push({code,name}); save({immediate:true}).then(()=>{ closeModal(); render(); }).catch(()=>{});
+      state.modules.push({code,name}); save(); closeModal(); render();
     };
   }
 
@@ -325,7 +325,7 @@ document.addEventListener("DOMContentLoaded",()=>{
         state.modules=state.modules.filter(m=>m.code!==data.moduleCode); state.lessons=state.lessons.filter(l=>l.module!==data.moduleCode);
         state.modules.push({code:data.moduleCode,name:data.title});
         chosen.forEach((l,i)=>state.lessons.push({...l,module:data.moduleCode,id:`${data.moduleCode}-${Date.now()}-${i}`}));
-        save({immediate:true}).then(()=>{ closeModal(); render(); toast(`${data.moduleCode} imported`); }).catch(()=>{});
+        save(); closeModal(); render(); toast(`${data.moduleCode} imported`);
       };
     }catch(e){
       openModal(`<h2>Import failed</h2><div class="error-box">${esc(e.message)}</div><div class="modal-footer"><button class="secondary" id="importFailedBack">Back to module search</button><button class="secondary" id="importFailedClose">Close</button></div>`);

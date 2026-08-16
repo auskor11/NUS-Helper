@@ -2,43 +2,18 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
+    // User profile document. The client needs to create/update this parent
+    // document before saving app state and push subscriptions.
     match /users/{userId} {
       allow read, write: if request.auth != null && request.auth.uid == userId;
-
-      match /appState/{documentId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-
-      match /pushSubscriptions/{subscriptionId} {
-        allow read, write: if request.auth != null && request.auth.uid == userId;
-      }
-
-      match /sharedTimetable/{documentId} {
-        allow read: if request.auth != null && (
-          request.auth.uid == userId ||
-          exists(/databases/$(database)/documents/users/$(userId)/friends/$(request.auth.uid))
-        );
-        allow write: if request.auth != null && request.auth.uid == userId;
-      }
-
-      match /friends/{friendId} {
-        allow read: if request.auth != null && request.auth.uid == userId;
-        allow create: if request.auth != null && request.auth.uid == userId && request.resource.data.uid == friendId;
-        allow delete: if request.auth != null && request.auth.uid == userId;
-        allow update: if false;
-      }
-
-      match /friendRequests/{requestId} {
-        allow read, delete: if request.auth != null && request.auth.uid == userId;
-        allow create: if request.auth != null && request.resource.data.fromUid == request.auth.uid;
-        allow update: if false;
-      }
     }
 
-    match /publicProfiles/{userId} {
-      allow read: if request.auth != null;
-      allow create, update: if request.auth != null && request.auth.uid == userId;
-      allow delete: if request.auth != null && request.auth.uid == userId;
+    match /users/{userId}/appState/{documentId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
+    }
+
+    match /users/{userId}/pushSubscriptions/{subscriptionId} {
+      allow read, write: if request.auth != null && request.auth.uid == userId;
     }
 
     match /{document=**} {

@@ -1,6 +1,6 @@
 
 document.addEventListener("DOMContentLoaded",()=>{
-  let mode="week";
+  let mode=localStorage.getItem("nus_calendar_mode")||"week";
   let weekOffset=0;
   let monthCursor=new Date(new Date().getFullYear(),new Date().getMonth(),1);
 
@@ -12,8 +12,8 @@ document.addEventListener("DOMContentLoaded",()=>{
       </div>
       ${mode==="week"?weekView():monthView()}
     `;
-    $("#weekBtn")?.addEventListener("click",()=>{mode="week";render();});
-    $("#monthBtn")?.addEventListener("click",()=>{mode="month";render();});
+    $("#weekBtn")?.addEventListener("click",()=>{mode="week";localStorage.setItem("nus_calendar_mode",mode);render();});
+    $("#monthBtn")?.addEventListener("click",()=>{mode="month";localStorage.setItem("nus_calendar_mode",mode);render();});
     initToolbar();
   }
 

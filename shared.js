@@ -28,7 +28,10 @@ const defaultTasks = [
 function clone(v){ return JSON.parse(JSON.stringify(v)); }
 
 function read(key, fallback){
-  return clone(fallback);
+  try {
+    const raw = localStorage.getItem(key);
+    return raw === null ? clone(fallback) : JSON.parse(raw);
+  } catch { return clone(fallback); }
 }
 
 const state = {
@@ -36,8 +39,7 @@ const state = {
   lessons: read("nus_lessons", []),
   activities: read("nus_activities", defaultActivities),
   tasks: read("nus_tasks", defaultTasks),
-  semester: read("nus_semester", {academicYear:ACADEMIC_YEAR, semester:SEMESTER}),
-  manualFriends: []
+  semester: read("nus_semester", {academicYear:ACADEMIC_YEAR, semester:SEMESTER})
 };
 
 let cloudSaveTimer = null;
@@ -45,114 +47,35 @@ let cloudSyncStop = null;
 let cloudSyncActive = false;
 let lastLocalCloudChangeAt = 0;
 let lastRemoteCloudChangeAt = 0;
-let cloudWriteQueue = Promise.resolve();
-let saveOverlayEl = null;
-let saveOverlayCount = 0;
 
-function ensureSaveOverlay(){
-  if(saveOverlayEl) return saveOverlayEl;
-  saveOverlayEl=document.createElement("div");
-  saveOverlayEl.id="firebaseSaveOverlay";
-  saveOverlayEl.innerHTML=`
-    <div class="firebase-save-card" role="status" aria-live="polite">
-      <div class="firebase-save-spinner" aria-hidden="true"></div>
-      <div class="firebase-save-title">Saving...</div>
-      <div class="firebase-save-subtitle">Please wait while your changes are saved.</div>
-    </div>`;
-  Object.assign(saveOverlayEl.style,{
-    position:"fixed",inset:"0",zIndex:"2147483647",
-    display:"none",alignItems:"center",justifyContent:"center",
-    background:"rgba(0,0,0,.38)",backdropFilter:"blur(3px)",
-    pointerEvents:"auto"
-  });
-  const style=document.createElement("style");
-  style.textContent=`
-    #firebaseSaveOverlay .firebase-save-card{
-      width:min(340px,calc(100vw - 40px));
-      box-sizing:border-box;padding:24px 22px;border-radius:16px;
-      background:var(--card-bg,#fff);color:var(--text,#111);
-      box-shadow:0 12px 40px rgba(0,0,0,.22);text-align:center;
-      font-family:inherit;
-    }
-    #firebaseSaveOverlay .firebase-save-spinner{
-      width:30px;height:30px;margin:0 auto 14px;
-      border:3px solid rgba(128,128,128,.28);
-      border-top-color:currentColor;border-radius:50%;
-      animation:firebaseSaveSpin .8s linear infinite;
-    }
-    #firebaseSaveOverlay .firebase-save-title{font-size:18px;font-weight:700}
-    #firebaseSaveOverlay .firebase-save-subtitle{
-      margin-top:7px;font-size:13px;opacity:.72;line-height:1.4
-    }
-    #firebaseSaveOverlay.saved .firebase-save-spinner{display:none}
-    #firebaseSaveOverlay.saved .firebase-save-title::before{content:"✓ "}
-    @keyframes firebaseSaveSpin{to{transform:rotate(360deg)}}
-  `;
-  document.head.appendChild(style);
-  document.body.appendChild(saveOverlayEl);
-  return saveOverlayEl;
-}
+function save(options={}){
+  localStorage.setItem("nus_modules", JSON.stringify(state.modules));
+  localStorage.setItem("nus_lessons", JSON.stringify(state.lessons));
+  localStorage.setItem("nus_activities", JSON.stringify(state.activities));
+  localStorage.setItem("nus_tasks", JSON.stringify(state.tasks));
+  localStorage.setItem("nus_semester", JSON.stringify(state.semester));
 
-function showSaving(){
-  const el=ensureSaveOverlay();
-  saveOverlayCount++;
-  el.classList.remove("saved");
-  el.querySelector(".firebase-save-title").textContent="Saving...";
-  el.querySelector(".firebase-save-subtitle").textContent="Please wait while your changes are saved.";
-  el.style.display="flex";
-}
-
-function hideSaving(saved=true){
-  saveOverlayCount=Math.max(0,saveOverlayCount-1);
-  if(saveOverlayCount>0) return;
-  const el=ensureSaveOverlay();
-  if(saved){
-    el.classList.add("saved");
-    el.querySelector(".firebase-save-title").textContent="Saved";
-    el.querySelector(".firebase-save-subtitle").textContent="Your changes have been saved.";
-    setTimeout(()=>{
-      if(saveOverlayCount===0) el.style.display="none";
-    },500);
-  }else{
-    el.style.display="none";
-  }
-}
-
-async function save(options={}){
-  showSaving();
-  try{
-    if(window.nusFirebaseReady) await window.nusFirebaseReady;
-    if(window.nusAuthReady) await window.nusAuthReady;
-    const api=window.nusFirebase;
-    if(!api?.configured || !api?.user) throw new Error("You must be signed in to save.");
-
-    clearTimeout(cloudSaveTimer);
+  // Normal edits are debounced. Destructive operations can request an
+  // immediate Firestore write so a refresh cannot race the pending save.
+  if(window.nusFirebase?.configured && window.nusFirebase?.user){
     lastLocalCloudChangeAt=Date.now();
-    const snapshot=clone(state);
-    const write=()=>api.saveState(snapshot);
-
+    clearTimeout(cloudSaveTimer);
     if(options.immediate){
-      cloudWriteQueue=cloudWriteQueue.then(write,write);
-      await cloudWriteQueue;
-    }else{
-      await new Promise((resolve,reject)=>{
-        cloudSaveTimer=setTimeout(()=>{
-          const queued=cloudWriteQueue.then(write,write);
-          cloudWriteQueue=queued;
-          queued.then(resolve).catch(reject);
-        },250);
+      return window.nusFirebase.saveState(state).catch(err=>{
+        console.error("Cloud save failed",err);
+        toast("Deleted locally, but cloud sync failed.");
+        throw err;
       });
     }
-    hideSaving(true);
-    return true;
-  }catch(err){
-    console.error("Cloud save failed:",err);
-    hideSaving(false);
-    toast("SAVE FAILED: " + (err?.message || "Unknown Firebase error"));
-    throw err;
+    cloudSaveTimer=setTimeout(()=>{
+      window.nusFirebase.saveState(state).catch(err=>{
+        console.error("Cloud save failed",err);
+        toast("Saved locally, but cloud sync failed.");
+      });
+    },350);
   }
+  return Promise.resolve();
 }
-
 
 function esc(v=""){
   return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -240,7 +163,6 @@ function pageShell(page, title, icon){
         <a class="nav-item ${page==="calendar"?"active":""}" href="/calendar.html">◫ <span>Calendar</span></a>
         <a class="nav-item ${page==="modules"?"active":""}" href="/modules.html">▣ <span>Modules</span></a>
         <a class="nav-item ${page==="activities"?"active":""}" href="/activities.html">◎ <span>Activities</span></a>
-        <a class="nav-item ${page==="friends"?"active":""}" href="/friends.html">♙ <span>Friends</span></a>
         <a class="nav-item ${page==="tasks"?"active":""}" href="/tasks.html">✓ <span>Tasks</span></a>
         <a class="nav-item ${page==="map"?"active":""}" href="/map.html">⌖ <span>Map</span></a>
         <a class="nav-item ${page==="bus"?"active":""}" href="/bus.html">🚌 <span>Bus Timings</span></a>
@@ -273,7 +195,7 @@ function setupSidebarControls(){
 
   const key="nus_sidebar_collapsed";
   const apply=()=>{
-    const collapsed=false;
+    const collapsed=localStorage.getItem(key)==="1";
     body.classList.toggle("sidebar-collapsed",collapsed);
     if(openBtn) openBtn.hidden=!collapsed;
     if(closeBtn) closeBtn.hidden=collapsed;
@@ -290,16 +212,16 @@ function setupSidebarControls(){
   };
   closeBtn?.addEventListener("click",()=>{
     setMobileOpen(false);
-    
+    localStorage.setItem(key,"0");
     apply();
   });
   openBtn?.addEventListener("click",()=>{
-    
+    localStorage.setItem(key,"0");
     apply();
     setMobileOpen(true);
   });
   menuBtn?.addEventListener("click",()=>{
-    
+    localStorage.setItem(key,"0");
     setMobileOpen(!sidebar.classList.contains("open"));
     apply();
   });
@@ -338,14 +260,23 @@ const NOTIFICATION_WINDOW_MS=60*1000;
 const DELETED_TASKS_KEY="nus_deleted_task_ids_v63";
 const DELETED_ACTIVITIES_KEY="nus_deleted_activity_ids_v63";
 
-function deletedIds(key){ return new Set(); }
-function saveDeletedIds(key,set){}
-function markDeletedId(key,id){}
-function clearDeletedId(key,id){}
+function deletedIds(key){
+  try{return new Set(JSON.parse(localStorage.getItem(key)||"[]"));}catch{return new Set();}
+}
+function saveDeletedIds(key,set){localStorage.setItem(key,JSON.stringify([...set]));}
+function markDeletedId(key,id){
+  if(!id)return;
+  const set=deletedIds(key); set.add(String(id)); saveDeletedIds(key,set);
+}
+function clearDeletedId(key,id){
+  if(!id)return;
+  const set=deletedIds(key); set.delete(String(id)); saveDeletedIds(key,set);
+}
 
-let notificationMemoryLog={};
-function notificationLog(){ return {...notificationMemoryLog}; }
-function saveNotificationLog(log){ notificationMemoryLog={...log}; }
+function notificationLog(){
+  try{return JSON.parse(localStorage.getItem(NOTIFICATION_KEY)||"{}");}catch{return {};}
+}
+function saveNotificationLog(log){localStorage.setItem(NOTIFICATION_KEY,JSON.stringify(log));}
 
 function notificationTime(date){return new Date(date).getTime();}
 
@@ -550,81 +481,24 @@ function openNotificationCenter(){
     closeModal();
   });
   $("#clearNotificationLogBtn")?.addEventListener("click",()=>{
-    notificationMemoryLog={};
+    localStorage.removeItem(NOTIFICATION_KEY);
     toast("Reminder history reset.");
     closeModal();
   });
-}
-
-function showCloudLoading(){
-  if(document.getElementById("cloudInitialLoading")) return;
-  const el=document.createElement("div");
-  el.id="cloudInitialLoading";
-  el.innerHTML=`
-    <div class="cloud-loading-card">
-      <div class="cloud-loading-spinner"></div>
-      <div class="cloud-loading-title">Loading your data...</div>
-      <div class="cloud-loading-subtitle">Please wait while we get your latest data from Firebase.</div>
-    </div>`;
-  const style=document.createElement("style");
-  style.textContent=`
-    #cloudInitialLoading{
-      position:fixed;inset:0;z-index:2147483646;display:flex;
-      align-items:center;justify-content:center;
-      background:rgba(0,0,0,.42);backdrop-filter:blur(4px);
-    }
-    #cloudInitialLoading .cloud-loading-card{
-      width:min(360px,calc(100vw - 40px));box-sizing:border-box;
-      padding:26px 22px;border-radius:16px;text-align:center;
-      background:var(--card-bg,#fff);color:var(--text,#111);
-      box-shadow:0 12px 40px rgba(0,0,0,.22);
-    }
-    #cloudInitialLoading .cloud-loading-spinner{
-      width:30px;height:30px;margin:0 auto 14px;border:3px solid rgba(128,128,128,.28);
-      border-top-color:currentColor;border-radius:50%;animation:cloudInitialSpin .8s linear infinite;
-    }
-    #cloudInitialLoading .cloud-loading-title{font-size:18px;font-weight:700}
-    #cloudInitialLoading .cloud-loading-subtitle{margin-top:7px;font-size:13px;opacity:.72;line-height:1.4}
-    @keyframes cloudInitialSpin{to{transform:rotate(360deg)}}
-  `;
-  document.head.appendChild(style);
-  document.body.appendChild(el);
-}
-function hideCloudLoading(){
-  const el=document.getElementById("cloudInitialLoading");
-  if(!el) return;
-  el.style.opacity="0";
-  el.style.transition="opacity .15s ease";
-  setTimeout(()=>el.remove(),160);
 }
 
 async function initCommon(){
   const authenticated=await requireAuthentication();
   if(!authenticated) return;
 
-  // IMPORTANT: do not expose the page's default in-memory state while
-  // Firestore is still loading. Hard refreshes previously showed the original
-  // data briefly, then the correct cloud data arrived later.
-  showCloudLoading();
-  try{
-    if(window.nusFirebaseReady) await window.nusFirebaseReady;
-    if(window.nusAuthReady) await window.nusAuthReady;
-    if(window.nusCloudReady) await window.nusCloudReady;
-  }catch(err){
-    console.error("Initial cloud hydration failed",err);
-  }
-
-  window.dispatchEvent(new CustomEvent("nus-data-changed"));
-  hideCloudLoading();
-
   setupSidebarControls();
-  const savedTheme=null;
+  const savedTheme=localStorage.getItem("nus_theme");
   if(savedTheme==="light") document.body.classList.add("light");
 
   $("#themeBtn")?.addEventListener("click",()=>{
     document.body.classList.toggle("light");
     const light=document.body.classList.contains("light");
-    
+    localStorage.setItem("nus_theme", light?"light":"dark");
     $("#themeBtn").innerHTML=light?"☾ <span>Dark mode</span>":"☀ <span>Light mode</span>";
   });
   if(document.body.classList.contains("light")) $("#themeBtn").innerHTML="☾ <span>Dark mode</span>";
@@ -638,7 +512,6 @@ async function initCommon(){
   // scheduler. Do not run the old foreground/local notification scheduler,
   // otherwise one reminder can produce two notifications.
 
-  initModal();
   setupInstall();
   setupFirebaseAccount();
   if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", {updateViaCache:"none"}).then(r=>r.update()).catch(()=>{});
@@ -705,11 +578,21 @@ async function setupFirebaseAccount(){
     lastRemoteCloudChangeAt=remoteChangedAt || Date.now();
     if(Array.isArray(remote.modules)) state.modules=remote.modules;
     if(Array.isArray(remote.lessons)) state.lessons=remote.lessons;
-    if(Array.isArray(remote.activities)) state.activities=remote.activities;
-    if(Array.isArray(remote.tasks)) state.tasks=remote.tasks;
+    if(Array.isArray(remote.activities)){
+      const deleted=deletedIds(DELETED_ACTIVITIES_KEY);
+      state.activities=remote.activities.filter(a=>!deleted.has(String(a.id)));
+    }
+    if(Array.isArray(remote.tasks)){
+      const deleted=deletedIds(DELETED_TASKS_KEY);
+      state.tasks=remote.tasks.filter(t=>!deleted.has(String(t.id)));
+    }
     if(remote.semester) state.semester=remote.semester;
-    if(Array.isArray(remote.manualFriends)) state.manualFriends=remote.manualFriends;
 
+    localStorage.setItem("nus_modules",JSON.stringify(state.modules));
+    localStorage.setItem("nus_lessons",JSON.stringify(state.lessons));
+    localStorage.setItem("nus_activities",JSON.stringify(state.activities));
+    localStorage.setItem("nus_tasks",JSON.stringify(state.tasks));
+    localStorage.setItem("nus_semester",JSON.stringify(state.semester));
 
     // Re-render any current page after a change from another device/tab.
     window.dispatchEvent(new CustomEvent("nus-cloud-state-applied"));
@@ -727,7 +610,7 @@ async function setupFirebaseAccount(){
       err=>{
         cloudSyncActive=false;
         console.error("Realtime cloud sync failed",err);
-        toast("Realtime sync is temporarily unavailable. Please try again after checking your connection.");
+        toast("Realtime sync is temporarily unavailable. Your local changes are still saved.");
       }
     ) || null;
     if(cloudSyncStop) cloudSyncActive=true;
