@@ -556,9 +556,66 @@ function openNotificationCenter(){
   });
 }
 
+function showCloudLoading(){
+  if(document.getElementById("cloudInitialLoading")) return;
+  const el=document.createElement("div");
+  el.id="cloudInitialLoading";
+  el.innerHTML=`
+    <div class="cloud-loading-card">
+      <div class="cloud-loading-spinner"></div>
+      <div class="cloud-loading-title">Loading your data...</div>
+      <div class="cloud-loading-subtitle">Please wait while we get your latest data from Firebase.</div>
+    </div>`;
+  const style=document.createElement("style");
+  style.textContent=`
+    #cloudInitialLoading{
+      position:fixed;inset:0;z-index:2147483646;display:flex;
+      align-items:center;justify-content:center;
+      background:rgba(0,0,0,.42);backdrop-filter:blur(4px);
+    }
+    #cloudInitialLoading .cloud-loading-card{
+      width:min(360px,calc(100vw - 40px));box-sizing:border-box;
+      padding:26px 22px;border-radius:16px;text-align:center;
+      background:var(--card-bg,#fff);color:var(--text,#111);
+      box-shadow:0 12px 40px rgba(0,0,0,.22);
+    }
+    #cloudInitialLoading .cloud-loading-spinner{
+      width:30px;height:30px;margin:0 auto 14px;border:3px solid rgba(128,128,128,.28);
+      border-top-color:currentColor;border-radius:50%;animation:cloudInitialSpin .8s linear infinite;
+    }
+    #cloudInitialLoading .cloud-loading-title{font-size:18px;font-weight:700}
+    #cloudInitialLoading .cloud-loading-subtitle{margin-top:7px;font-size:13px;opacity:.72;line-height:1.4}
+    @keyframes cloudInitialSpin{to{transform:rotate(360deg)}}
+  `;
+  document.head.appendChild(style);
+  document.body.appendChild(el);
+}
+function hideCloudLoading(){
+  const el=document.getElementById("cloudInitialLoading");
+  if(!el) return;
+  el.style.opacity="0";
+  el.style.transition="opacity .15s ease";
+  setTimeout(()=>el.remove(),160);
+}
+
 async function initCommon(){
   const authenticated=await requireAuthentication();
   if(!authenticated) return;
+
+  // IMPORTANT: do not expose the page's default in-memory state while
+  // Firestore is still loading. Hard refreshes previously showed the original
+  // data briefly, then the correct cloud data arrived later.
+  showCloudLoading();
+  try{
+    if(window.nusFirebaseReady) await window.nusFirebaseReady;
+    if(window.nusAuthReady) await window.nusAuthReady;
+    if(window.nusCloudReady) await window.nusCloudReady;
+  }catch(err){
+    console.error("Initial cloud hydration failed",err);
+  }
+
+  window.dispatchEvent(new CustomEvent("nus-data-changed"));
+  hideCloudLoading();
 
   setupSidebarControls();
   const savedTheme=null;
@@ -670,7 +727,7 @@ async function setupFirebaseAccount(){
       err=>{
         cloudSyncActive=false;
         console.error("Realtime cloud sync failed",err);
-        toast("Realtime sync is temporarily unavailable. Your local changes are still saved.");
+        toast("Realtime sync is temporarily unavailable. Please try again after checking your connection.");
       }
     ) || null;
     if(cloudSyncStop) cloudSyncActive=true;

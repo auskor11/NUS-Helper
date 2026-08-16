@@ -22,6 +22,9 @@
   let resolveAuthReady;
   window.nusAuthReady=new Promise(resolve=>{resolveAuthReady=resolve;});
 
+  let resolveCloudReady;
+  window.nusCloudReady=new Promise(resolve=>{resolveCloudReady=resolve;});
+
   function valid(c){
     return c && ["apiKey","authDomain","projectId","appId"].every(k=>c[k]) &&
       !Object.values(c).some(v=>String(v).includes("YOUR_"));
@@ -46,6 +49,7 @@
       );
       window.nusFirebase.error=err;
       resolveAuthReady(null);
+      resolveCloudReady(null);
       window.dispatchEvent(new CustomEvent("nus-firebase-error",{detail:err}));
       return null;
     }
@@ -293,10 +297,16 @@
           try{
             const remote=await api.loadState();
             window.dispatchEvent(new CustomEvent("nus-cloud-state",{detail:remote}));
+            resolveCloudReady(remote);
           }catch(e){
             console.error("Firestore load failed",e);
             window.dispatchEvent(new CustomEvent("nus-firebase-error",{detail:e}));
+            // Do not block the entire app forever. The error is surfaced to
+            // the user, but no stale localStorage data is involved.
+            resolveCloudReady(null);
           }
+        }else{
+          resolveCloudReady(null);
         }
       });
 
@@ -305,6 +315,7 @@
       console.error("Firebase initialisation failed",e);
       window.nusFirebase.error=e;
       resolveAuthReady(null);
+      resolveCloudReady(null);
       window.dispatchEvent(new CustomEvent("nus-firebase-error",{detail:e}));
       return null;
     }
