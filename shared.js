@@ -163,6 +163,7 @@ function pageShell(page, title, icon){
         <a class="nav-item ${page==="calendar"?"active":""}" href="/calendar.html">◫ <span>Calendar</span></a>
         <a class="nav-item ${page==="modules"?"active":""}" href="/modules.html">▣ <span>Modules</span></a>
         <a class="nav-item ${page==="activities"?"active":""}" href="/activities.html">◎ <span>Activities</span></a>
+        <a class="nav-item ${page==="friends"?"active":""}" href="/friends.html">♙ <span>Friends</span></a>
         <a class="nav-item ${page==="tasks"?"active":""}" href="/tasks.html">✓ <span>Tasks</span></a>
         <a class="nav-item ${page==="map"?"active":""}" href="/map.html">⌖ <span>Map</span></a>
         <a class="nav-item ${page==="bus"?"active":""}" href="/bus.html">🚌 <span>Bus Timings</span></a>

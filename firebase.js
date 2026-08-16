@@ -144,6 +144,12 @@
             clientUpdatedAt:Date.now(),
             updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
           },{merge:true});
+          // Only timetable data is shared with accepted app friends. Private
+          // tasks, activities, expenses, etc. remain in appState/main.
+          await userRef.collection("sharedTimetable").doc("main").set({
+            lessons:snapshot.lessons||[],
+            updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
+          },{merge:true});
         },
         async loadState(){
           if(!api.user)return null;
@@ -168,6 +174,84 @@
             userAgent:navigator.userAgent
           },{merge:true});
           return docId;
+        },
+        async ensureFriendProfile(){
+          if(!api.user) throw new Error("You are not signed in.");
+          const uid=api.user.uid;
+          const friendCode=`NUS-${uid.replace(/[^a-zA-Z0-9]/g,"").slice(-8).toUpperCase()}`;
+          const ref=db.collection("publicProfiles").doc(uid);
+          const profile={
+            uid,
+            friendCode,
+            displayName:api.user.displayName||api.user.email?.split("@")[0]||"NUS Student",
+            updatedAt:window.firebase.firestore.FieldValue.serverTimestamp()
+          };
+          await ref.set(profile,{merge:true});
+          return {...profile,friendCode};
+        },
+        async getFriendProfile(friendCode){
+          if(!api.user) throw new Error("You are not signed in.");
+          const code=String(friendCode||"").trim().toUpperCase();
+          if(!code) throw new Error("Enter a friend code.");
+          const snap=await db.collection("publicProfiles").where("friendCode","==",code).limit(1).get();
+          if(snap.empty) return null;
+          return snap.docs[0].data();
+        },
+        async sendFriendRequest(friendCode){
+          if(!api.user) throw new Error("You are not signed in.");
+          const target=await api.getFriendProfile(friendCode);
+          if(!target) throw new Error("Friend code not found.");
+          if(target.uid===api.user.uid) throw new Error("You cannot add yourself.");
+          const existing=await db.collection("users").doc(api.user.uid).collection("friends").doc(target.uid).get();
+          if(existing.exists) throw new Error("You are already friends.");
+          const requestRef=db.collection("users").doc(target.uid).collection("friendRequests").doc(api.user.uid);
+          await requestRef.set({
+            fromUid:api.user.uid,
+            fromName:api.user.displayName||api.user.email?.split("@")[0]||"NUS Student",
+            fromFriendCode:(await api.ensureFriendProfile()).friendCode,
+            createdAt:window.firebase.firestore.FieldValue.serverTimestamp()
+          },{merge:true});
+          return target;
+        },
+        async acceptFriendRequest(request){
+          if(!api.user) throw new Error("You are not signed in.");
+          const fromUid=String(request?.fromUid||"");
+          if(!fromUid) throw new Error("Invalid friend request.");
+          const other=await db.collection("publicProfiles").doc(fromUid).get();
+          if(!other.exists) throw new Error("That account no longer exists.");
+          const me=await api.ensureFriendProfile();
+          const batch=db.batch();
+          const meRef=db.collection("users").doc(api.user.uid).collection("friends").doc(fromUid);
+          const otherRef=db.collection("users").doc(fromUid).collection("friends").doc(api.user.uid);
+          batch.set(meRef,{uid:fromUid,displayName:other.data().displayName||"NUS Student",friendCode:other.data().friendCode||null,createdAt:window.firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+          batch.set(otherRef,{uid:api.user.uid,displayName:me.displayName,friendCode:me.friendCode,createdAt:window.firebase.firestore.FieldValue.serverTimestamp()},{merge:true});
+          batch.delete(db.collection("users").doc(api.user.uid).collection("friendRequests").doc(fromUid));
+          await batch.commit();
+        },
+        async rejectFriendRequest(request){
+          if(!api.user) throw new Error("You are not signed in.");
+          const fromUid=String(request?.fromUid||"");
+          if(!fromUid) return;
+          await db.collection("users").doc(api.user.uid).collection("friendRequests").doc(fromUid).delete();
+        },
+        async removeFriend(friendUid){
+          if(!api.user || !friendUid) return;
+          const batch=db.batch();
+          batch.delete(db.collection("users").doc(api.user.uid).collection("friends").doc(friendUid));
+          batch.delete(db.collection("users").doc(friendUid).collection("friends").doc(api.user.uid));
+          await batch.commit();
+        },
+        listenFriends(onChange,onError){
+          if(!api.user)return ()=>{};
+          return db.collection("users").doc(api.user.uid).collection("friends").onSnapshot(
+            snap=>onChange(snap.docs.map(d=>({uid:d.id,...d.data()}))),onError
+          );
+        },
+        listenFriendRequests(onChange,onError){
+          if(!api.user)return ()=>{};
+          return db.collection("users").doc(api.user.uid).collection("friendRequests").onSnapshot(
+            snap=>onChange(snap.docs.map(d=>({id:d.id,...d.data()}))),onError
+          );
         },
         async removePushSubscription(subscription){
           if(!api.user || !subscription?.endpoint)return;
@@ -200,6 +284,7 @@
         window.dispatchEvent(new CustomEvent("nus-auth-changed",{detail:api.user}));
 
         if(user){
+          try{ await api.ensureFriendProfile(); }catch(e){ console.warn("Friend profile setup failed",e); }
           try{
             const remote=await api.loadState();
             window.dispatchEvent(new CustomEvent("nus-cloud-state",{detail:remote}));

@@ -581,3 +581,10 @@ This is an independent personal student project and is not affiliated with or en
 - If no NUSMods venue matches, the search falls back to external maps (Google Places when configured, then OpenStreetMap/Photon).
 - Selected location source and coordinates are saved with the activity.
 - Existing activity locations remain compatible and can still be edited.
+
+## V70 — Friends
+- Added a Friends tab.
+- Manual friends can be added with a name and one of the user's lesson groups.
+- NUS Companion users can add each other with a private friend code and friend requests.
+- Accepted app friends are matched automatically by module, lesson type and class/group number.
+- Friend timetable matching reads a dedicated shared timetable only; tasks, activities and other private app data are not exposed.
