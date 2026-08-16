@@ -102,11 +102,13 @@ document.addEventListener("DOMContentLoaded",()=>{
     const total=tasks.length+acts.length;
     const previewLimit=3;
     const previewTasks=tasks.slice(0,previewLimit);
-    const remaining=Math.max(0,total-previewTasks.length);
+    const previewActs=acts.slice(0,Math.max(0,previewLimit-previewTasks.length));
+    const displayedItems=previewTasks.length+previewActs.length;
+    const remaining=Math.max(0,total-displayedItems);
     return `<div class="month-day month-day-clickable ${inMonth?"":"muted"} ${sameDay(d,new Date())?"today":""}" data-calendar-date="${isoDate(d)}" role="button" tabindex="0" aria-label="View ${esc(d.toLocaleDateString("en-SG",{day:"numeric",month:"long",year:"numeric"}))}">
       <div class="day-num">${d.getDate()}</div>
       ${previewTasks.map(t=>`<div class="cal-event task-event">✓ ${esc(t.title)}<small>${inputTimeToLabel(t.dueTime)}</small></div>`).join("")}
-      ${acts.slice(0,Math.max(0,previewLimit-previewTasks.length)).map(a=>`<div class="cal-event activity-cal">◎ ${esc(a.name)}${a.venue?`<small>${mapLocationLink(a.venue)}</small>`:""}</div>`).join("")}
+      ${previewActs.map(a=>`<div class="cal-event activity-cal">◎ ${esc(a.name)}${a.venue?`<small>${mapLocationLink(a.venue)}</small>`:""}</div>`).join("")}
       ${remaining>0?`<div class="cal-more">+${remaining} more</div>`:""}
     </div>`;
   }

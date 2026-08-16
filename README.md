@@ -611,3 +611,8 @@ This is an independent personal student project and is not affiliated with or en
 - Tapping a date opens a popup listing all tasks due and all activities occurring on that day.
 - The month cells still show a compact preview, with a `+N more` indicator when needed.
 - Popup items include task time/module and activity time/club/location where available.
+
+
+## V88 — Calendar `+N more` fix
+- Fixed Month view incorrectly showing `+1 more` when a date contains exactly one activity and no other items.
+- The `+N more` count now subtracts every item actually displayed, including activities.
