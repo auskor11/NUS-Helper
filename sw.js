@@ -1,4 +1,4 @@
-/* NUS Companion V66.3 Service Worker
+/* NUS Companion V86 Service Worker
  *
  * This file MUST remain a service worker only.
  * It receives Web Push events while the PWA is not open and displays
@@ -12,7 +12,27 @@ self.addEventListener("install", event => {
 });
 
 self.addEventListener("activate", event => {
-  event.waitUntil(self.clients.claim());
+  event.waitUntil((async () => {
+    await self.clients.claim();
+
+    // Safari installed PWAs can keep an older document/CSS snapshot than
+    // a normal browser tab. Reload controlled clients once when this new
+    // service worker activates so the newly deployed app is picked up.
+    const clients = await self.clients.matchAll({
+      type: "window",
+      includeUncontrolled: true
+    });
+
+    await Promise.all(
+      clients.map(client => {
+        try {
+          return client.navigate(client.url);
+        } catch {
+          return undefined;
+        }
+      })
+    );
+  })());
 });
 
 self.addEventListener("push", event => {

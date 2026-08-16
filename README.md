@@ -599,3 +599,8 @@ This is an independent personal student project and is not affiliated with or en
 - Fixed the Month calendar overflowing horizontally on mobile.
 - Removed the 760px mobile minimum width and made all seven columns fit the viewport.
 - Reduced mobile calendar spacing/font sizes and constrained event text to prevent cells from expanding.
+
+
+## V86 — Safari installed-app cache fix
+- Added stylesheet cache-busting (`styles.css?v=86`) to all app pages.
+- Updated the service worker version and refreshes controlled clients once when the new worker activates, helping Safari installed PWAs pick up new CSS/HTML.
