@@ -658,8 +658,9 @@ This is an independent personal student project and is not affiliated with or en
 - Added a final loading-state safeguard so failed searches cannot leave the UI stuck indefinitely.
 
 
-## V99 — Map diagnostic only
-- V99 is based on V94 and does not change the existing map coordinate logic.
-- Added `map-diagnostic-v99.html` to compare LT16/LT11 against COM1-0120/COM1-0210.
-- Diagnostic checks NUSMods venue-list presence, exact coordinate-key presence, raw x/y, converted lat/lng, NUS Campus Map matching, and the returned raw records.
-- Added a diagnostic link on the Map page; this is for investigation only and should be removed after the map issue is identified.
+## V100 — Map room search diagnostic fix
+- Based on V94; fixes the exact failure identified by V99 diagnostics.
+- The NUSMods semester venue endpoint can return 404, but the exact NUSMods coordinate dataset is still available.
+- The Map venue search now indexes exact NUSMods coordinate keys directly, so room-level venues such as COM1-0120 and COM1-0210 can be searched even when the semester venue endpoint is unavailable.
+- Exact NUSMods room coordinates remain higher priority than NUS Campus Map coordinates.
+- A fresh Search click now clears stale venue errors before starting a new search.

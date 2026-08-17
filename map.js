@@ -1067,7 +1067,10 @@ function setupVenueSearch(){
   const input=$("#venueSearch"), btn=$("#venueSearchBtn");
   if(!input||!btn)return;
 
-  const run=()=>searchVenues(input.value);
+  const run=()=>{
+    clearVenueError();
+    searchVenues(input.value);
+  };
   btn.addEventListener("click",run);
   input.addEventListener("keydown",e=>{if(e.key==="Enter")run();});
 
@@ -1082,22 +1085,51 @@ function setupVenueSearch(){
 function venueCandidates(){
   const byCode=new Map();
 
-  // 1. NUSMods first: if its venue payload contains coordinates, use them
-  // directly. This avoids geocoding a venue that NUSMods already knows.
+  // 1. NUSMods venue list. This is the preferred source when the public
+  // semester venue endpoint is available.
   for(const v of (venueList||[])){
     const key=normaliseCode(v.code);
     if(!key)continue;
+    const exact=getNUSModsCoordinates(v.code);
     byCode.set(key,{
       code:v.code,
-      name:v.name,
-      lat:v.coordinates?.lat ?? null,
-      lng:v.coordinates?.lng ?? null,
-      source:v.coordinates ? "NUSMods coordinates" : "NUSMods"
+      name:v.name||v.code,
+      lat:exact?.lat ?? v.coordinates?.lat ?? null,
+      lng:exact?.lng ?? v.coordinates?.lng ?? null,
+      floor:exact?.floor ?? null,
+      roomName:exact?.roomName || "",
+      source:exact ? "NUSMods coordinates" : (v.coordinates ? "NUSMods coordinates" : "NUSMods")
     });
   }
 
-  // 2. NUS Campus Map fills gaps. Do not overwrite coordinates already
-  // supplied by NUSMods.
+  // 1b. IMPORTANT: the semester venue endpoint can return 404 for a
+  // deployment/API version even though the NUSMods optimiser coordinate
+  // dataset is available. In that situation, use the coordinate dataset's
+  // exact venue keys as the NUS venue search index. This is what fixes
+  // room-level venues such as COM1-0120 and COM1-0210.
+  if(nusmodsVenueCoordinates && typeof nusmodsVenueCoordinates==="object"){
+    for(const [code,value] of Object.entries(nusmodsVenueCoordinates)){
+      const key=normaliseCode(code);
+      if(!key || byCode.has(key))continue;
+
+      const x=Number(value?.location?.x);
+      const y=Number(value?.location?.y);
+      if(!Number.isFinite(x)||!Number.isFinite(y))continue;
+
+      byCode.set(key,{
+        code:String(code),
+        name:String(value?.roomName||code),
+        lat:y,
+        lng:x,
+        floor:value?.floor ?? null,
+        roomName:value?.roomName || "",
+        source:"NUSMods coordinates"
+      });
+    }
+  }
+
+  // 2. NUS Campus Map fills gaps only. It must never overwrite an exact
+  // NUSMods room coordinate.
   for(const x of campusLocations){
     const code=x.place_code||x.location_name||x.place_name;
     const name=x.place_name||x.location_name||code;
