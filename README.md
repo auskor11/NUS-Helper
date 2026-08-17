@@ -624,3 +624,10 @@ This is an independent personal student project and is not affiliated with or en
 - A new Firebase account starts with an empty state and is never seeded from the previous account.
 - The app waits for the current user's Firestore state before enabling the main interface.
 - Toast notifications are positioned at the top with iOS safe-area support.
+
+
+## V90 — Toast position + completed calendar tasks
+- Fixed the toast CSS override that was forcing notifications back to `position: relative`, which caused them to remain at the bottom of the document.
+- Toasts are now fixed at the top-centre with iOS safe-area support.
+- Completed tasks in Month view are visibly marked with a check, `Completed` status, reduced opacity, and strikethrough.
+- Completed status is also shown in the tapped-date task popup.

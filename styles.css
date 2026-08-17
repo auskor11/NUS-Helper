@@ -104,7 +104,7 @@ body.sidebar-collapsed .main{margin-left:0;width:100%}
 
 /* V16: ensure app notifications are always above Leaflet controls/popups */
 .toast-stack{z-index:2147483647!important}
-.toast{position:relative;z-index:2147483647!important}
+.toast{position:fixed;z-index:2147483647!important;top:calc(env(safe-area-inset-top,0px) + 14px);left:50%;right:auto;bottom:auto;transform:translateX(-50%);max-width:min(92vw,520px);}
 
 /* V18 venue search error: keep it directly beneath the search results and above the map */
 .venue-search-error{
@@ -741,4 +741,20 @@ body.sidebar-collapsed .main{margin-left:0;width:100%}
 #cloudInitialLoading .cloud-loading-title{font-size:18px;font-weight:700}
 #cloudInitialLoading .cloud-loading-subtitle{margin-top:7px;font-size:13px;opacity:.72}
 @keyframes v89spin{to{transform:rotate(360deg)}}
-@media(max-width:800px){.toast{top:calc(env(safe-area-inset-top,0px) + 10px);max-width:calc(100vw - 28px)}}
+@media(max-width:800px){.toast{top:calc(env(safe-area-inset-top,0px) + 10px);left:50%;right:auto;bottom:auto;transform:translateX(-50%);max-width:calc(100vw - 28px)}}
+
+/* V90: clearly indicate completed tasks in Month calendar */
+.month-day .cal-event.completed-task{
+  opacity:.62;
+  text-decoration:line-through;
+}
+.month-day .cal-event.completed-task small{
+  text-decoration:none;
+  opacity:.9;
+}
+.calendar-day-item.task-day-item.completed-day-item{
+  opacity:.68;
+}
+.calendar-day-item.task-day-item.completed-day-item .calendar-day-item-main b{
+  text-decoration:line-through;
+}

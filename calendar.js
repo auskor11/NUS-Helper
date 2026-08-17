@@ -107,7 +107,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     const remaining=Math.max(0,total-displayedItems);
     return `<div class="month-day month-day-clickable ${inMonth?"":"muted"} ${sameDay(d,new Date())?"today":""}" data-calendar-date="${isoDate(d)}" role="button" tabindex="0" aria-label="View ${esc(d.toLocaleDateString("en-SG",{day:"numeric",month:"long",year:"numeric"}))}">
       <div class="day-num">${d.getDate()}</div>
-      ${previewTasks.map(t=>`<div class="cal-event task-event">✓ ${esc(t.title)}<small>${inputTimeToLabel(t.dueTime)}</small></div>`).join("")}
+      ${previewTasks.map(t=>`<div class="cal-event task-event ${t.done?"completed-task":""}">${t.done?"✓ ":""}${esc(t.title)}${t.done?`<small>Completed${t.dueTime?` · ${inputTimeToLabel(t.dueTime)}`:""}</small>`:`<small>${inputTimeToLabel(t.dueTime)}</small>`}</div>`).join("")}
       ${previewActs.map(a=>`<div class="cal-event activity-cal">◎ ${esc(a.name)}${a.venue?`<small>${mapLocationLink(a.venue)}</small>`:""}</div>`).join("")}
       ${remaining>0?`<div class="cal-more">+${remaining} more</div>`:""}
     </div>`;
@@ -142,11 +142,11 @@ document.addEventListener("DOMContentLoaded",()=>{
       .sort((a,b)=>String(a.startTime||"").localeCompare(String(b.startTime||"")));
 
     const taskHTML=tasks.length?tasks.map(t=>`
-      <div class="calendar-day-item task-day-item">
+      <div class="calendar-day-item task-day-item ${t.done?"completed-day-item":""}">
         <div class="calendar-day-item-icon">✓</div>
         <div class="calendar-day-item-main">
-          <b>${esc(t.title)}</b>
-          <small>${t.dueTime?`Due ${inputTimeToLabel(t.dueTime)}`:"No time set"}${t.module?` · ${esc(t.module)}`:""}</small>
+          <b>${t.done?"✓ ":""}${esc(t.title)}</b>
+          <small>${t.done?"Completed":(t.dueTime?`Due ${inputTimeToLabel(t.dueTime)}`:"No time set")}${t.module?` · ${esc(t.module)}`:""}</small>
         </div>
       </div>`).join(""):`<div class="calendar-day-empty">No tasks due.</div>`;
 
