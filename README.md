@@ -658,21 +658,8 @@ This is an independent personal student project and is not affiliated with or en
 - Added a final loading-state safeguard so failed searches cannot leave the UI stuck indefinitely.
 
 
-## V95 — NUS venue map coordinate fix
-- Fixed venues such as COM1-0210 being recognised by NUSMods but failing to appear on the map.
-- NUSMods is still the first source for venue search/name matching, while the official NUS Campus Map now supplies the physical GPS coordinates.
-- Removed reliance on the previous GitHub coordinate JSON endpoint, which could return a non-JSON/404 response and leave coordinates unavailable.
-- Map lookup now uses the same NUS Campus Map coordinate source as module venue selection.
-
-
-## V96 — Room-to-building map fallback
-- Fixed room-level NUSMods venues that are searchable but not separately listed by the NUS Campus Map.
-- Added a generic parent-building fallback: e.g. COM1-0210 searches for COM1/Block COM1 coordinates when the exact room has no map record.
-- Exact room matches still take priority; the fallback only supplies the physical building coordinates needed to place the marker.
-
-
-## V97 — Exact NUSMods room coordinates
-- Uses NUSMods' own optimiser `venues.json` as the primary coordinate source.
-- Exact room keys such as COM1-0120 are matched directly before any building fallback.
-- Falls back to GitHub Contents API if the raw NUSMods coordinate file cannot be fetched.
-- Module location search and the main map now use the same exact room-level coordinate dataset.
+## V99 — Map diagnostic only
+- V99 is based on V94 and does not change the existing map coordinate logic.
+- Added `map-diagnostic-v99.html` to compare LT16/LT11 against COM1-0120/COM1-0210.
+- Diagnostic checks NUSMods venue-list presence, exact coordinate-key presence, raw x/y, converted lat/lng, NUS Campus Map matching, and the returned raw records.
+- Added a diagnostic link on the Map page; this is for investigation only and should be removed after the map issue is identified.

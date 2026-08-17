@@ -59,50 +59,34 @@ document.addEventListener("DOMContentLoaded",()=>{
     state.modules.splice(i,1); state.lessons=state.lessons.filter(l=>l.module!==code); save(); render(); toast(`${code} removed`);
   };
 
-
-async function loadExactNUSModsVenueCoordinates(){
-  const rawUrl="https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json";
-  const apiUrl="https://api.github.com/repos/nusmodifications/nusmods/contents/website/api/optimiser/_constants/venues.json?ref=master";
-  const parseData=data=>{
-    if(!data || typeof data!=="object" || Array.isArray(data)) throw new Error("Invalid NUSMods venue coordinate data");
-    return data;
-  };
-  try{
-    const r=await fetch(rawUrl,{cache:"no-store"});
-    if(r.ok){
-      const text=await r.text();
-      if(text.trim().startsWith("<")) throw new Error("NUSMods returned HTML instead of JSON");
-      return parseData(JSON.parse(text));
-    }
-  }catch(e){ console.warn("NUSMods raw venue coordinates unavailable:",e); }
-  try{
-    const r=await fetch(apiUrl,{cache:"no-store",headers:{"Accept":"application/vnd.github+json"}});
-    if(!r.ok) throw new Error(`GitHub API returned ${r.status}`);
-    const payload=await r.json();
-    if(!payload?.content) throw new Error("GitHub API returned no file content");
-    const binary=atob(String(payload.content).replace(/\s/g,""));
-    const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));
-    return parseData(JSON.parse(new TextDecoder().decode(bytes)));
-  }catch(e){ console.warn("NUSMods GitHub API venue coordinates unavailable:",e); }
-  return null;
-}
   async function loadModuleVenueData(){
-    if(moduleVenueList===null){
-      moduleVenueList=[];
-      try{
-        const r=await fetch(`${NUSMODS_BASE}/semesters/${SEMESTER}/venues.json`,{cache:"no-store"});
-        if(r.ok){
-          const data=await r.json();
-          moduleVenueList=Array.isArray(data)
-            ? data.map(normaliseVenue).filter(Boolean)
-            : Object.keys(data||{}).map(k=>normaliseVenue(data[k],k)).filter(Boolean);
-        }
-      }catch(e){ console.warn("Could not load NUSMods module venues:",e); }
+    if(moduleVenueList!==null)return;
+
+    moduleVenueList=[];
+    try{
+      const url=`${NUSMODS_BASE}/semesters/${SEMESTER}/venues.json`;
+      const r=await fetch(url,{cache:"no-store"});
+      if(r.ok){
+        const data=await r.json();
+        moduleVenueList=Array.isArray(data)
+          ? data.map(normaliseVenue).filter(Boolean)
+          : Object.keys(data||{}).map(k=>normaliseVenue(data[k],k)).filter(Boolean);
+      }
+    }catch(e){
+      console.warn("Could not load NUSMods module venues:",e);
     }
-    if(moduleNUSModsCoordinates===null){
-      moduleNUSModsCoordinates=await loadExactNUSModsVenueCoordinates();
+
+    try{
+      const r=await fetch("https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json",{cache:"no-store"});
+      if(r.ok){
+        const data=await r.json();
+        if(data&&typeof data==="object")moduleNUSModsCoordinates=data;
+      }
+    }catch(e){
+      console.warn("Could not load NUSMods module venue coordinates:",e);
     }
   }
+
   function normaliseVenue(v,key=""){
     if(typeof v==="string")return {code:v,name:v};
     if(!v||typeof v!=="object")return key?{code:key,name:key}:null;
@@ -118,12 +102,14 @@ async function loadExactNUSModsVenueCoordinates(){
   function getNUSModsCoordinates(code){
     if(!moduleNUSModsCoordinates)return null;
     const wanted=normaliseCode(code);
-    const exactKey=Object.keys(moduleNUSModsCoordinates).find(k=>normaliseCode(k)===wanted);
-    if(!exactKey)return null;
-    const value=moduleNUSModsCoordinates[exactKey];
-    const x=Number(value?.location?.x), y=Number(value?.location?.y);
-    if(!Number.isFinite(x)||!Number.isFinite(y))return null;
-    return {lat:y,lng:x,floor:value?.floor??null,roomName:value?.roomName||"",source:"NUSMods exact room coordinates"};
+    for(const [key,value] of Object.entries(moduleNUSModsCoordinates)){
+      if(normaliseCode(key)!==wanted)continue;
+      const x=Number(value?.location?.x), y=Number(value?.location?.y);
+      if(Number.isFinite(x)&&Number.isFinite(y)){
+        return {lat:y,lng:x,source:"NUSMods venue coordinates"};
+      }
+    }
+    return null;
   }
 
   function moduleVenueCandidates(){

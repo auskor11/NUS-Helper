@@ -785,50 +785,55 @@ function filterBusStops(route){
 }
 
 
-
-async function loadExactNUSModsVenueCoordinates(){
-  const rawUrl="https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json";
-  const apiUrl="https://api.github.com/repos/nusmodifications/nusmods/contents/website/api/optimiser/_constants/venues.json?ref=master";
-  const parseData=data=>{
-    if(!data || typeof data!=="object" || Array.isArray(data)) throw new Error("Invalid NUSMods venue coordinate data");
-    return data;
-  };
-  try{
-    const r=await fetch(rawUrl,{cache:"no-store"});
-    if(r.ok){
-      const text=await r.text();
-      if(text.trim().startsWith("<")) throw new Error("NUSMods returned HTML instead of JSON");
-      return parseData(JSON.parse(text));
-    }
-  }catch(e){ console.warn("NUSMods raw venue coordinates unavailable:",e); }
-  try{
-    const r=await fetch(apiUrl,{cache:"no-store",headers:{"Accept":"application/vnd.github+json"}});
-    if(!r.ok) throw new Error(`GitHub API returned ${r.status}`);
-    const payload=await r.json();
-    if(!payload?.content) throw new Error("GitHub API returned no file content");
-    const binary=atob(String(payload.content).replace(/\s/g,""));
-    const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));
-    return parseData(JSON.parse(new TextDecoder().decode(bytes)));
-  }catch(e){ console.warn("NUSMods GitHub API venue coordinates unavailable:",e); }
-  return null;
-}
-
 async function loadNUSModsVenueCoordinates(){
-  nusmodsVenueCoordinates=await loadExactNUSModsVenueCoordinates();
-  if(nusmodsVenueCoordinates) console.info(`Loaded ${Object.keys(nusmodsVenueCoordinates).length} exact NUSMods venue coordinates.`);
+  try{
+    // NUSMods itself maintains this coordinate dataset for its optimiser.
+    // It maps venue codes to precise GPS coordinates (x=longitude, y=latitude).
+    const url="https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json";
+    const r=await fetch(url,{cache:"no-store"});
+    if(!r.ok)throw new Error(`NUSMods coordinate database returned ${r.status}`);
+    const data=await r.json();
+    if(!data || typeof data!=="object")throw new Error("Invalid NUSMods coordinate database");
+    nusmodsVenueCoordinates=data;
+    console.info(`Loaded ${Object.keys(data).length} NUSMods venue coordinates.`);
+  }catch(e){
+    nusmodsVenueCoordinates=null;
+    console.warn("Could not load NUSMods venue coordinates:",e);
+  }
 }
 
 function getNUSModsCoordinates(code){
-  if(!nusmodsVenueCoordinates || typeof nusmodsVenueCoordinates!=="object")return null;
+  if(!nusmodsVenueCoordinates)return null;
   const wanted=normaliseCode(code);
-  const exactKey=Object.keys(nusmodsVenueCoordinates).find(k=>normaliseCode(k)===wanted);
-  if(!exactKey)return null;
-  const value=nusmodsVenueCoordinates[exactKey];
-  const x=Number(value?.location?.x), y=Number(value?.location?.y);
-  if(!Number.isFinite(x)||!Number.isFinite(y))return null;
-  return {lat:y,lng:x,floor:value?.floor??null,roomName:value?.roomName||"",displayName:value?.roomName||exactKey,source:"NUSMods exact room coordinates"};
+
+  for(const [key,value] of Object.entries(nusmodsVenueCoordinates)){
+    if(normaliseCode(key)!==wanted)continue;
+    const x=Number(value?.location?.x);
+    const y=Number(value?.location?.y);
+    if(Number.isFinite(x)&&Number.isFinite(y)){
+      return {
+        lat:y,
+        lng:x,
+        floor:value?.floor ?? null,
+        roomName:value?.roomName || "",
+        source:"NUSMods venue coordinates"
+      };
+    }
+  }
+
+  return null;
 }
 
+async function loadVenues(){
+  try{
+    const r=await fetch(`${NUSMODS_BASE}/semesters/${SEMESTER}/venues.json`,{cache:"no-store"});
+    if(!r.ok) throw new Error(`Venue list returned ${r.status}`);
+    const data=await r.json();
+    venueList=Array.isArray(data)?data.map(normaliseVenue).filter(Boolean):Object.keys(data||{}).map(k=>normaliseVenue(data[k],k)).filter(Boolean);
+  }catch(e){
+    venueList=[];
+  }
+}
 
 function extractVenueCoordinates(v){
   if(!v || typeof v!=="object") return null;
@@ -1314,18 +1319,6 @@ function findLocationForVenue(v){
     return fields.some(f=>f===q || (q.length>=4 && f.includes(q)) || (nameQ && f.includes(nameQ)));
   });
   if(found)return found;
-
-  // Generic room -> parent building fallback.
-  const parts=String(v.code||"").split(/[-_]/);
-  for(let i=parts.length-1;i>0;i--){
-    const parent=normaliseCode(parts.slice(0,i).join("-"));
-    if(parent.length<2)continue;
-    found=candidates.find(x=>{
-      const fields=[x.place_code,x.location_name,x.place_name,x.description].map(normaliseCode);
-      return fields.some(f=>f===parent || f.includes(parent));
-    });
-    if(found)return found;
-  }
 
   const parent=VENUE_PARENT_FALLBACKS[q];
   if(parent){

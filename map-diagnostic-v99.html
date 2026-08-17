@@ -1,0 +1,239 @@
+<!doctype html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>NUS Companion — Map Diagnostic V99</title>
+<link rel="stylesheet" href="/styles.css">
+<style>
+body{margin:0;background:var(--bg,#f5f6f8);color:var(--text,#111)}
+.diag{max-width:900px;margin:0 auto;padding:24px 16px 48px}
+.diag h1{margin-bottom:6px}.diag p{opacity:.75}
+.toolbar{display:flex;gap:8px;flex-wrap:wrap;margin:18px 0}
+.toolbar input{flex:1;min-width:220px;padding:11px 13px;border:1px solid #ccc;border-radius:10px;background:var(--panel,#fff);color:inherit}
+.toolbar button{padding:11px 15px;border:0;border-radius:10px;cursor:pointer}
+.case-grid{display:grid;grid-template-columns:repeat(4,1fr);gap:8px;margin:12px 0 18px}
+.case-grid button{padding:10px;border:1px solid #ccc;border-radius:10px;background:var(--panel,#fff);cursor:pointer}
+#status{margin:12px 0;padding:12px;border-radius:10px;background:var(--panel,#fff)}
+.result{margin-top:14px;padding:16px;border-radius:14px;background:var(--panel,#fff);border:1px solid rgba(128,128,128,.2)}
+.result h2{margin-top:0}.row{display:grid;grid-template-columns:210px 1fr;gap:10px;padding:7px 0;border-bottom:1px solid rgba(128,128,128,.14)}
+.row:last-child{border-bottom:0}.ok{font-weight:700}.bad{font-weight:700}.mono{font-family:ui-monospace,SFMono-Regular,Menlo,monospace;word-break:break-all}
+pre.raw{white-space:pre-wrap;word-break:break-word;background:rgba(128,128,128,.08);padding:12px;border-radius:10px;max-height:260px;overflow:auto}
+@media(max-width:650px){.case-grid{grid-template-columns:repeat(2,1fr)}.row{grid-template-columns:1fr}}
+</style>
+</head>
+<body>
+<main class="diag">
+<h1>🧭 Map Diagnostic V99</h1>
+<p>This page diagnoses the V94 venue → coordinate → map pipeline. It does <b>not</b> modify your existing map behaviour.</p>
+
+<div class="case-grid">
+<button data-venue="LT16">Test LT16</button>
+<button data-venue="LT11">Test LT11</button>
+<button data-venue="COM1-0120">Test COM1-0120</button>
+<button data-venue="COM1-0210">Test COM1-0210</button>
+</div>
+
+<div class="toolbar">
+<input id="venueInput" value="COM1-0120" placeholder="Enter venue, e.g. COM1-0120">
+<button id="runBtn">Run diagnostic</button>
+<button id="allBtn">Run all 4</button>
+</div>
+<div id="status">Ready.</div>
+<div id="results"></div>
+</main>
+
+<script>
+const NUSMODS_BASE="https://api.nusmods.com/v2";
+const SEMESTER=1;
+const normaliseCode=s=>String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+let venueList=null;
+let coordinateData=null;
+let campusData=null;
+
+async function fetchJSON(url,options={}){
+  const r=await fetch(url,options);
+  const text=await r.text();
+  let data=null;
+  try{data=JSON.parse(text)}catch(e){
+    throw new Error(`HTTP ${r.status}: response was not JSON (${text.slice(0,100)})`);
+  }
+  if(!r.ok)throw new Error(`HTTP ${r.status}`);
+  return data;
+}
+
+async function loadVenueList(){
+  if(venueList)return {data:venueList,url:`${NUSMODS_BASE}/semesters/${SEMESTER}/venues.json`};
+  const url=`${NUSMODS_BASE}/semesters/${SEMESTER}/venues.json`;
+  const data=await fetchJSON(url,{cache:"no-store"});
+  venueList=data;
+  return {data,url};
+}
+
+async function loadCoordinates(){
+  if(coordinateData)return {data:coordinateData,source:"NUSMods coordinate dataset"};
+  const urls=[
+    "https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json",
+    "https://api.github.com/repos/nusmodifications/nusmods/contents/website/api/optimiser/_constants/venues.json?ref=master"
+  ];
+  const errors=[];
+  for(const url of urls){
+    try{
+      const r=await fetch(url,{cache:"no-store",headers:{"Accept":"application/vnd.github+json"}});
+      const text=await r.text();
+      let data;
+      if(url.includes("api.github.com")){
+        const payload=JSON.parse(text);
+        if(!payload.content)throw new Error("GitHub response had no file content");
+        const binary=atob(payload.content.replace(/\s/g,""));
+        data=JSON.parse(new TextDecoder().decode(Uint8Array.from(binary,c=>c.charCodeAt(0))));
+      }else{
+        if(text.trim().startsWith("<"))throw new Error("HTML returned instead of JSON");
+        data=JSON.parse(text);
+      }
+      if(!data||typeof data!=="object"||Array.isArray(data))throw new Error("Coordinate dataset is not an object");
+      coordinateData=data;
+      return {data,source:url};
+    }catch(e){errors.push(`${url}: ${e.message}`)}
+  }
+  throw new Error(errors.join("\n"));
+}
+
+async function loadCampus(){
+  if(campusData)return {data:campusData};
+  const url="https://map.nus.edu.sg/index.php/search/ajax_auto";
+  const data=await fetchJSON(url,{cache:"no-store"});
+  campusData=data;
+  return {data,url};
+}
+
+function venueEntries(data){
+  if(Array.isArray(data)){
+    return data.map((v,i)=>({key:String(v?.venue||v?.code||v?.name||v?.venueCode||i),value:v}));
+  }
+  return Object.entries(data||{}).map(([key,value])=>({key,value}));
+}
+
+function findVenueMatch(data,query){
+  const q=normaliseCode(query);
+  const entries=venueEntries(data);
+  return entries.find(e=>normaliseCode(e.key)===q)
+    || entries.find(e=>{
+      const v=e.value||{};
+      return [v.venue,v.code,v.name,v.location_name,v.venueCode].some(x=>normaliseCode(x)===q);
+    });
+}
+
+function findCoordinateMatch(data,query){
+  const q=normaliseCode(query);
+  const entries=Object.entries(data||{});
+  return entries.find(([key])=>normaliseCode(key)===q);
+}
+
+function findCampusMatch(data,query){
+  const q=normaliseCode(query);
+  if(!Array.isArray(data))return null;
+  return data.find(x=>{
+    const fields=[x?.place_code,x?.location_name,x?.place_name,x?.description].map(normaliseCode);
+    return fields.some(f=>f===q || (q.length>=4 && f.includes(q)));
+  })||null;
+}
+
+function val(v){return v===undefined||v===null||v===""?"—":String(v)}
+function yn(v){return v?"YES":"NO"}
+function row(label,value,cls=""){return `<div class="row"><b>${label}</b><span class="${cls}">${value}</span></div>`}
+function esc(s){return String(s??"").replace(/[&<>"']/g,c=>({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]))}
+
+async function diagnose(query){
+  const result=document.createElement("section");
+  result.className="result";
+  result.innerHTML=`<h2>${esc(query)}</h2><div>Running…</div>`;
+  document.querySelector("#results").prepend(result);
+
+  const report={input:query,normalised:normaliseCode(query)};
+  const rows=[];
+
+  try{
+    const v=await loadVenueList();
+    const match=findVenueMatch(v.data,query);
+    report.venueListFound=!!match;
+    report.venueListKey=match?.key||null;
+    report.venueListRaw=match?.value||null;
+    rows.push(row("1. Normalised code",`<span class="mono">${esc(report.normalised)}</span>`));
+    rows.push(row("2. NUSMods venue list",yn(report.venueListFound),report.venueListFound?"ok":"bad"));
+    rows.push(row("Matched venue key",`<span class="mono">${esc(val(report.venueListKey))}</span>`));
+  }catch(e){
+    report.venueListError=e.message;
+    rows.push(row("2. NUSMods venue list","ERROR: "+esc(e.message),"bad"));
+  }
+
+  try{
+    const c=await loadCoordinates();
+    const match=findCoordinateMatch(c.data,query);
+    report.coordinateFound=!!match;
+    report.coordinateKey=match?.[0]||null;
+    report.coordinateRaw=match?.[1]||null;
+    report.coordinateSource=c.source;
+    const x=Number(match?.[1]?.location?.x), y=Number(match?.[1]?.location?.y);
+    report.x=Number.isFinite(x)?x:null;
+    report.y=Number.isFinite(y)?y:null;
+    report.lng=report.x;
+    report.lat=report.y;
+    rows.push(row("3. NUSMods coordinate key",yn(report.coordinateFound),report.coordinateFound?"ok":"bad"));
+    rows.push(row("Coordinate key",`<span class="mono">${esc(val(report.coordinateKey))}</span>`));
+    rows.push(row("Raw x (longitude)",`<span class="mono">${val(report.x)}</span>`));
+    rows.push(row("Raw y (latitude)",`<span class="mono">${val(report.y)}</span>`));
+    rows.push(row("Converted longitude",`<span class="mono">${val(report.lng)}</span>`));
+    rows.push(row("Converted latitude",`<span class="mono">${val(report.lat)}</span>`));
+    rows.push(row("Coordinate source",`<span class="mono">${esc(report.coordinateSource)}</span>`));
+  }catch(e){
+    report.coordinateError=e.message;
+    rows.push(row("3. NUSMods coordinate dataset","ERROR: "+esc(e.message),"bad"));
+  }
+
+  try{
+    const c=await loadCampus();
+    const match=findCampusMatch(c.data,query);
+    report.campusFound=!!match;
+    report.campusMatch=match||null;
+    rows.push(row("4. NUS Campus Map exact/partial match",yn(report.campusFound),report.campusFound?"ok":"bad"));
+    if(match)rows.push(row("Campus coordinates",`<span class="mono">lat=${val(match.lat)}, lng=${val(match.long)}</span>`));
+  }catch(e){
+    report.campusError=e.message;
+    rows.push(row("4. NUS Campus Map lookup","ERROR: "+esc(e.message),"bad"));
+  }
+
+  rows.push(row("5. Diagnosis",diagnoseText(report)));
+
+  result.innerHTML=`<h2>${esc(query)}</h2>${rows.join("")}<details><summary>Raw data returned</summary><pre class="raw">${esc(JSON.stringify({venue:report.venueListRaw,coordinates:report.coordinateRaw,campus:report.campusMatch},null,2))}</pre></details>`;
+  return report;
+}
+
+function diagnoseText(r){
+  if(r.coordinateFound && Number.isFinite(r.lat)&&Number.isFinite(r.lng))
+    return `<span class="ok">NUSMods has an exact coordinate entry.</span> The V94 map should be able to use it; if the marker is still wrong, the next suspect is the map-placement/coordinate pipeline.`;
+  if(r.venueListFound && !r.coordinateFound)
+    return `<span class="bad">Venue exists in NUSMods venue list, but no exact key was found in the coordinate dataset.</span> This is the key difference we need to investigate.`;
+  if(!r.venueListFound && r.campusFound)
+    return `<span class="bad">Venue was not found in the NUSMods venue list, but Campus Map has a match.</span>`;
+  return `<span class="bad">No exact NUSMods coordinate match was resolved.</span>`;
+}
+
+document.querySelectorAll("[data-venue]").forEach(b=>b.onclick=()=>{venueInput.value=b.dataset.venue;runOne()});
+async function runOne(){
+  const q=venueInput.value.trim();
+  if(!q)return;
+  status.textContent=`Testing ${q}…`;
+  await diagnose(q);
+  status.textContent=`Finished ${q}.`;
+}
+runBtn.onclick=runOne;
+allBtn.onclick=async()=>{
+  results.innerHTML="";
+  status.textContent="Running LT16, LT11, COM1-0120 and COM1-0210…";
+  for(const q of ["LT16","LT11","COM1-0120","COM1-0210"])await diagnose(q);
+  status.textContent="All diagnostics complete.";
+};
+</script>
+</body>
+</html>
