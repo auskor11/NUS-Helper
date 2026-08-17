@@ -616,3 +616,11 @@ This is an independent personal student project and is not affiliated with or en
 ## V88 — Calendar `+N more` fix
 - Fixed Month view incorrectly showing `+1 more` when a date contains exactly one activity and no other items.
 - The `+N more` count now subtracts every item actually displayed, including activities.
+
+
+## V89 — Firebase account isolation + top notifications
+- App data no longer loads from localStorage; Firestore is the source of truth for modules, lessons, activities, tasks, and semester.
+- Account state is cleared immediately on account changes and sign-out.
+- A new Firebase account starts with an empty state and is never seeded from the previous account.
+- The app waits for the current user's Firestore state before enabling the main interface.
+- Toast notifications are positioned at the top with iOS safe-area support.

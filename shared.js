@@ -27,19 +27,14 @@ const defaultTasks = [
 
 function clone(v){ return JSON.parse(JSON.stringify(v)); }
 
-function read(key, fallback){
-  try {
-    const raw = localStorage.getItem(key);
-    return raw === null ? clone(fallback) : JSON.parse(raw);
-  } catch { return clone(fallback); }
-}
+function read(key, fallback){ return clone(fallback); }
 
 const state = {
-  modules: read("nus_modules", DEFAULT_MODULES),
-  lessons: read("nus_lessons", []),
-  activities: read("nus_activities", defaultActivities),
-  tasks: read("nus_tasks", defaultTasks),
-  semester: read("nus_semester", {academicYear:ACADEMIC_YEAR, semester:SEMESTER})
+  modules: [],
+  lessons: [],
+  activities: [],
+  tasks: [],
+  semester: {academicYear:ACADEMIC_YEAR, semester:SEMESTER}
 };
 
 let cloudSaveTimer = null;
@@ -48,33 +43,33 @@ let cloudSyncActive = false;
 let lastLocalCloudChangeAt = 0;
 let lastRemoteCloudChangeAt = 0;
 
-function save(options={}){
-  localStorage.setItem("nus_modules", JSON.stringify(state.modules));
-  localStorage.setItem("nus_lessons", JSON.stringify(state.lessons));
-  localStorage.setItem("nus_activities", JSON.stringify(state.activities));
-  localStorage.setItem("nus_tasks", JSON.stringify(state.tasks));
-  localStorage.setItem("nus_semester", JSON.stringify(state.semester));
+let cloudWriteQueue=Promise.resolve();
+let accountDataReady=false;
+let activeAccountUid=null;
 
-  // Normal edits are debounced. Destructive operations can request an
-  // immediate Firestore write so a refresh cannot race the pending save.
-  if(window.nusFirebase?.configured && window.nusFirebase?.user){
-    lastLocalCloudChangeAt=Date.now();
-    clearTimeout(cloudSaveTimer);
-    if(options.immediate){
-      return window.nusFirebase.saveState(state).catch(err=>{
-        console.error("Cloud save failed",err);
-        toast("Deleted locally, but cloud sync failed.");
-        throw err;
-      });
-    }
+async function save(options={}){
+  const api=window.nusFirebase;
+  if(!api?.configured || !api?.user) throw new Error("You must be signed in to save.");
+  if(!accountDataReady || activeAccountUid!==api.user.uid) throw new Error("Your account data is still loading. Please wait.");
+  const snapshot=clone(state);
+  const write=()=>api.saveState(snapshot);
+
+  if(options.immediate){
+    cloudWriteQueue=cloudWriteQueue.then(write,write);
+    return cloudWriteQueue;
+  }
+
+  clearTimeout(cloudSaveTimer);
+  return new Promise((resolve,reject)=>{
     cloudSaveTimer=setTimeout(()=>{
-      window.nusFirebase.saveState(state).catch(err=>{
+      cloudWriteQueue=cloudWriteQueue.then(write,write);
+      cloudWriteQueue.then(resolve).catch(err=>{
         console.error("Cloud save failed",err);
-        toast("Saved locally, but cloud sync failed.");
+        toast("Could not save to Firebase. Please try again.");
+        reject(err);
       });
     },350);
-  }
-  return Promise.resolve();
+  });
 }
 
 function esc(v=""){
@@ -487,6 +482,15 @@ function openNotificationCenter(){
   });
 }
 
+function showCloudLoading(){
+  if(document.getElementById("cloudInitialLoading")) return;
+  const el=document.createElement("div");
+  el.id="cloudInitialLoading";
+  el.innerHTML=`<div class="cloud-loading-card"><div class="cloud-loading-spinner"></div><div class="cloud-loading-title">Loading your data...</div><div class="cloud-loading-subtitle">Please wait while we load your account.</div></div>`;
+  document.body.appendChild(el);
+}
+function hideCloudLoading(){ document.getElementById("cloudInitialLoading")?.remove(); }
+
 async function initCommon(){
   const authenticated=await requireAuthentication();
   if(!authenticated) return;
@@ -513,11 +517,22 @@ async function initCommon(){
   // otherwise one reminder can produce two notifications.
 
   setupInstall();
-  setupFirebaseAccount();
+  showCloudLoading();
+  await setupFirebaseAccount();
+  try{
+    if(window.nusFirebase?.user && window.nusAccountDataReady) await window.nusAccountDataReady;
+  }catch(err){
+    console.error("Account data loading failed",err);
+    toast("Could not load your account data.");
+  }
+  hideCloudLoading();
   if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", {updateViaCache:"none"}).then(r=>r.update()).catch(()=>{});
 }
 
 async function setupFirebaseAccount(){
+  let resolveAccountData;
+  let rejectAccountData;
+  window.nusAccountDataReady=new Promise((resolve,reject)=>{resolveAccountData=resolve;rejectAccountData=reject;});
   const btn=$("#accountBtn");
   if(!btn) return;
 
@@ -554,47 +569,43 @@ async function setupFirebaseAccount(){
     if(e.detail?.code!=="auth/popup-closed-by-user") toast(msg);
   });
 
+  const cleanAccountState=()=>{
+    state.modules=[];
+    state.lessons=[];
+    state.activities=[];
+    state.tasks=[];
+    state.semester={academicYear:ACADEMIC_YEAR, semester:SEMESTER};
+    lastRemoteCloudChangeAt=0;
+  };
+
   const applyCloudState=async remote=>{
+    const user=window.nusFirebase?.user;
+    if(!user) return;
+    if(activeAccountUid && activeAccountUid!==user.uid) return;
+    activeAccountUid=user.uid;
+
     if(!remote){
-      if(window.nusFirebase?.user){
-        try{
-          await window.nusFirebase.saveState(state);
-          toast("Your local data is now synced to Firebase.");
-        }catch(err){
-          console.error(err);
-          toast("Signed in, but Firestore could not save your data. Check Firestore rules.");
-        }
-      }
+      // Brand-new account: start clean. Never copy the previous user's state.
+      cleanAccountState();
+      accountDataReady=true;
+      resolveAccountData();
+      window.dispatchEvent(new CustomEvent("nus-cloud-state-applied"));
       return;
     }
 
     const remoteChangedAt=Number(remote.clientUpdatedAt||0);
-    // A local edit that has not yet reached Firestore must not be overwritten
-    // by an older realtime snapshot. Firestore remains the source of truth
-    // once the local write has completed.
     if(remoteChangedAt && remoteChangedAt < lastLocalCloudChangeAt) return;
     if(remoteChangedAt && remoteChangedAt === lastRemoteCloudChangeAt) return;
 
     lastRemoteCloudChangeAt=remoteChangedAt || Date.now();
     if(Array.isArray(remote.modules)) state.modules=remote.modules;
     if(Array.isArray(remote.lessons)) state.lessons=remote.lessons;
-    if(Array.isArray(remote.activities)){
-      const deleted=deletedIds(DELETED_ACTIVITIES_KEY);
-      state.activities=remote.activities.filter(a=>!deleted.has(String(a.id)));
-    }
-    if(Array.isArray(remote.tasks)){
-      const deleted=deletedIds(DELETED_TASKS_KEY);
-      state.tasks=remote.tasks.filter(t=>!deleted.has(String(t.id)));
-    }
+    if(Array.isArray(remote.activities)) state.activities=remote.activities;
+    if(Array.isArray(remote.tasks)) state.tasks=remote.tasks;
     if(remote.semester) state.semester=remote.semester;
 
-    localStorage.setItem("nus_modules",JSON.stringify(state.modules));
-    localStorage.setItem("nus_lessons",JSON.stringify(state.lessons));
-    localStorage.setItem("nus_activities",JSON.stringify(state.activities));
-    localStorage.setItem("nus_tasks",JSON.stringify(state.tasks));
-    localStorage.setItem("nus_semester",JSON.stringify(state.semester));
-
-    // Re-render any current page after a change from another device/tab.
+    accountDataReady=true;
+    resolveAccountData();
     window.dispatchEvent(new CustomEvent("nus-cloud-state-applied"));
   };
 
@@ -617,8 +628,18 @@ async function setupFirebaseAccount(){
   };
 
   window.addEventListener("nus-auth-changed",e=>{
-    if(e.detail) startRealtimeSync();
-    else if(cloudSyncStop){ cloudSyncStop(); cloudSyncStop=null; cloudSyncActive=false; }
+    if(e.detail){
+      cleanAccountState();
+      activeAccountUid=e.detail.uid;
+      accountDataReady=false;
+      startRealtimeSync();
+    }else{
+      if(cloudSyncStop){ cloudSyncStop(); cloudSyncStop=null; }
+      cloudSyncActive=false;
+      accountDataReady=false;
+      activeAccountUid=null;
+      cleanAccountState();
+    }
   });
 
   window.addEventListener("nus-cloud-state-applied",()=>{
@@ -664,8 +685,15 @@ async function setupFirebaseAccount(){
       });
 
       $("#signOutBtn")?.addEventListener("click",async()=>{
-        try{ await api.signOut(); closeModal(); update(); toast("Signed out."); }
-        catch(err){ console.error(err); toast(readableFirebaseError(err)); }
+        try{
+          cleanAccountState();
+          accountDataReady=false;
+          activeAccountUid=null;
+          if(cloudSyncStop){ cloudSyncStop(); cloudSyncStop=null; }
+          await api.signOut();
+          closeModal();
+          location.replace("/login.html");
+        }catch(err){ console.error(err); toast(readableFirebaseError(err)); }
       });
       return;
     }
