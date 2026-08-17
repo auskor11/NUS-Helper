@@ -1,11 +1,43 @@
 
-document.addEventListener("DOMContentLoaded",()=>{
+document.addEventListener("DOMContentLoaded",async()=>{
+  // V91: Firebase is now the source of truth, so do not render the dashboard
+  // until the current user's Firestore state has finished loading.
+  try{
+    await initCommon();
+  }catch(err){
+    console.error("Home initialisation failed:",err);
+  }
+
+  renderHome();
+
+  let overdueShown=false;
+  const checkOverdue=()=>{
+    if(overdueShown)return;
+    const current=[...state.tasks]
+      .filter(t=>!t.done&&taskDateTime(t)<new Date())
+      .sort((a,b)=>taskDateTime(a)-taskDateTime(b));
+    if(!current.length)return;
+    overdueShown=true;
+    setTimeout(()=>showOverduePopup(current),250);
+  };
+
+  checkOverdue();
+
+  window.addEventListener("nus-data-changed",()=>{
+    renderHome();
+    checkOverdue();
+  });
+});
+
+function renderHome(){
   const next=nextClass();
   const upcoming=[...state.tasks].filter(t=>!t.done).sort((a,b)=>taskDateTime(a)-taskDateTime(b)).slice(0,4);
   const acts=[...state.activities].filter(a=>activityOccursOnDate(a,new Date())).slice(0,4);
-  const overdue=[...state.tasks].filter(t=>!t.done&&taskDateTime(t)<new Date()).sort((a,b)=>taskDateTime(a)-taskDateTime(b));
 
-  document.querySelector(".view").innerHTML=`
+  const view=document.querySelector(".view");
+  if(!view)return;
+
+  view.innerHTML=`
     <div class="hero">
       <div class="hero-card">
         <div class="kicker">NEXT CLASS</div>
@@ -23,25 +55,8 @@ document.addEventListener("DOMContentLoaded",()=>{
     </div>
   `;
   initModal();
-  let overdueShown=false;
-  const checkOverdue=()=>{
-    if(overdueShown)return;
-    const current=[...state.tasks].filter(t=>!t.done&&taskDateTime(t)<new Date()).sort((a,b)=>taskDateTime(a)-taskDateTime(b));
-    if(!current.length)return;
-    overdueShown=true;
-    setTimeout(()=>showOverduePopup(current),250);
-  };
-  // initCommon restores Firebase state. Checking only the initial local state
-  // caused the popup to be missed on devices whose cloud data arrived later.
-  initCommon().then(checkOverdue).catch(()=>checkOverdue());
-  window.addEventListener("nus-cloud-state",checkOverdue,{once:true});
-  // Firebase sync can dispatch nus-data-changed more than once. Do not
-  // hard-reload the Home page here, otherwise realtime sync creates a
-  // refresh loop and the user cannot interact with the page.
-  window.addEventListener("nus-data-changed",()=>{
-    checkOverdue();
-  });
-});
+}
+
 
 function showOverduePopup(tasks){
   openModal(`<h2>⚠ Overdue tasks</h2>

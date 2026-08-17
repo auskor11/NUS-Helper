@@ -631,3 +631,9 @@ This is an independent personal student project and is not affiliated with or en
 - Toasts are now fixed at the top-centre with iOS safe-area support.
 - Completed tasks in Month view are visibly marked with a check, `Completed` status, reduced opacity, and strikethrough.
 - Completed status is also shown in the tapped-date task popup.
+
+
+## V91 — Home dashboard Firebase hydration fix
+- Fixed the Home dashboard rendering before Firebase account data had loaded.
+- The dashboard now waits for the authenticated user's Firestore state, then renders modules/classes, tasks, and activities from that state.
+- Realtime data changes re-render the dashboard without a hard page refresh.
