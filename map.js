@@ -786,20 +786,45 @@ function filterBusStops(route){
 
 
 async function loadNUSModsVenueCoordinates(){
+  // NUSMods' optimiser coordinate database is the authoritative source for
+  // exact room-level coordinates. Try the raw file first, then GitHub's
+  // Contents API because some deployed browsers/CDNs can reject the raw URL.
+  const rawUrl="https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json";
+  const apiUrl="https://api.github.com/repos/nusmodifications/nusmods/contents/website/api/optimiser/_constants/venues.json?ref=master";
+  const errors=[];
+
   try{
-    // NUSMods itself maintains this coordinate dataset for its optimiser.
-    // It maps venue codes to precise GPS coordinates (x=longitude, y=latitude).
-    const url="https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json";
-    const r=await fetch(url,{cache:"no-store"});
-    if(!r.ok)throw new Error(`NUSMods coordinate database returned ${r.status}`);
-    const data=await r.json();
-    if(!data || typeof data!=="object")throw new Error("Invalid NUSMods coordinate database");
+    const r=await fetch(rawUrl,{cache:"no-store"});
+    if(!r.ok)throw new Error(`raw URL returned ${r.status}`);
+    const text=await r.text();
+    if(text.trim().startsWith("<"))throw new Error("raw URL returned HTML instead of JSON");
+    const data=JSON.parse(text);
+    if(!data || typeof data!=="object" || Array.isArray(data))throw new Error("Invalid NUSMods coordinate database");
     nusmodsVenueCoordinates=data;
-    console.info(`Loaded ${Object.keys(data).length} NUSMods venue coordinates.`);
+    console.info(`Loaded ${Object.keys(data).length} NUSMods venue coordinates from raw GitHub.`);
+    return;
   }catch(e){
-    nusmodsVenueCoordinates=null;
-    console.warn("Could not load NUSMods venue coordinates:",e);
+    errors.push(`raw: ${e.message}`);
   }
+
+  try{
+    const r=await fetch(apiUrl,{cache:"no-store",headers:{"Accept":"application/vnd.github+json"}});
+    if(!r.ok)throw new Error(`GitHub API returned ${r.status}`);
+    const payload=await r.json();
+    if(!payload?.content)throw new Error("GitHub API returned no file content");
+    const binary=atob(String(payload.content).replace(/\s/g,""));
+    const bytes=Uint8Array.from(binary,c=>c.charCodeAt(0));
+    const data=JSON.parse(new TextDecoder().decode(bytes));
+    if(!data || typeof data!=="object" || Array.isArray(data))throw new Error("Invalid decoded NUSMods coordinate database");
+    nusmodsVenueCoordinates=data;
+    console.info(`Loaded ${Object.keys(data).length} NUSMods venue coordinates via GitHub API.`);
+    return;
+  }catch(e){
+    errors.push(`GitHub API: ${e.message}`);
+  }
+
+  nusmodsVenueCoordinates=null;
+  console.warn("Could not load NUSMods venue coordinates:",errors.join(" | "));
 }
 
 function getNUSModsCoordinates(code){
@@ -1078,7 +1103,7 @@ function setupVenueSearch(){
   // This makes the search bar update immediately without hammering an external API.
   input.addEventListener("input",()=>{
     clearVenueError();
-    renderVenueSuggestions(input.value);
+    void renderVenueSuggestions(input.value);
   });
 }
 
@@ -1151,7 +1176,7 @@ function venueCandidates(){
   return [...byCode.values()];
 }
 
-function renderVenueSuggestions(query){
+async function renderVenueSuggestions(query){
   const q=normaliseCode(query);
   const box=$("#venueResults");
   if(!box)return;
@@ -1232,6 +1257,9 @@ function renderVenueSuggestions(query){
 async function searchVenues(query){
   clearVenueError();
   const q=query.trim();
+  if(!nusmodsVenueCoordinates){
+    await loadNUSModsVenueCoordinates();
+  }
   const box=$("#venueResults");
   if(!box)return;
 

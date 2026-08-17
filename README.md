@@ -664,3 +664,10 @@ This is an independent personal student project and is not affiliated with or en
 - The Map venue search now indexes exact NUSMods coordinate keys directly, so room-level venues such as COM1-0120 and COM1-0210 can be searched even when the semester venue endpoint is unavailable.
 - Exact NUSMods room coordinates remain higher priority than NUS Campus Map coordinates.
 - A fresh Search click now clears stale venue errors before starting a new search.
+
+
+## V101 — Fix NUSMods coordinate loading in Map search
+- V100's logic was correct but its coordinate loader only tried the raw GitHub URL.
+- V101 adds the GitHub Contents API fallback used by the successful V99 diagnostic.
+- Map venue search now waits for the NUSMods coordinate dataset before searching, preventing an initialization race.
+- Exact room venues such as COM1-0120 and COM1-0210 therefore remain searchable even when the semester venue endpoint returns 404.
