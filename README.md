@@ -637,3 +637,10 @@ This is an independent personal student project and is not affiliated with or en
 - Fixed the Home dashboard rendering before Firebase account data had loaded.
 - The dashboard now waits for the authenticated user's Firestore state, then renders modules/classes, tasks, and activities from that state.
 - Realtime data changes re-render the dashboard without a hard page refresh.
+
+
+## V92 — Dashboard time refresh + module venue search
+- Home dashboard now recalculates every 30 seconds without reloading the page, so Next Class updates automatically as time passes.
+- Added the Activity-style location picker to module lesson editing.
+- Module venue search prioritises NUSMods venues first and falls back to external map search when there is no NUSMods match.
+- Selected venue coordinates/source are retained with the lesson when saved.

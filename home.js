@@ -27,6 +27,13 @@ document.addEventListener("DOMContentLoaded",async()=>{
     renderHome();
     checkOverdue();
   });
+
+  // Recalculate time-sensitive dashboard information without reloading the app.
+  // This lets "Next Class" move forward automatically as time passes.
+  setInterval(()=>{
+    renderHome();
+    checkOverdue();
+  },30000);
 });
 
 function renderHome(){

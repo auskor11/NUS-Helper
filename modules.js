@@ -1,6 +1,10 @@
 document.addEventListener("DOMContentLoaded",()=>{
   const view=document.querySelector(".view");
   let searchTimer=null;
+  let moduleVenueList=null;
+  let moduleNUSModsCoordinates=null;
+  let moduleGooglePlacesReady=null;
+  let moduleVenueSearchTimer=null;
 
   render();
 
@@ -51,6 +55,255 @@ document.addEventListener("DOMContentLoaded",()=>{
     state.modules.splice(i,1); state.lessons=state.lessons.filter(l=>l.module!==code); save(); render(); toast(`${code} removed`);
   };
 
+  function loadGooglePlaces(){
+    if(moduleGooglePlacesReady)return moduleGooglePlacesReady;
+    const key=window.NUS_GOOGLE_MAPS_API_KEY;
+    if(!key || key.includes("YOUR_")){
+      moduleGooglePlacesReady=Promise.resolve(null);
+      return moduleGooglePlacesReady;
+    }
+
+    if(window.google?.maps?.importLibrary){
+      moduleGooglePlacesReady=window.google.maps.importLibrary("places").catch(()=>null);
+      return moduleGooglePlacesReady;
+    }
+
+    moduleGooglePlacesReady=new Promise(resolve=>{
+      const existing=document.getElementById("googleMapsScript");
+      if(existing){
+        existing.addEventListener("load",async()=>{
+          try{resolve(await window.google.maps.importLibrary("places"));}catch(e){resolve(null);}
+        },{once:true});
+        return;
+      }
+
+      const script=document.createElement("script");
+      script.id="googleMapsScript";
+      script.async=true;
+      script.defer=true;
+      script.src=`https://maps.googleapis.com/maps/api/js?key=${encodeURIComponent(key)}&v=weekly&loading=async`;
+      let settled=false;
+      const finish=value=>{if(settled)return;settled=true;resolve(value);};
+      script.onload=async()=>{
+        try{
+          const lib=await Promise.race([
+            window.google.maps.importLibrary("places"),
+            new Promise(r=>setTimeout(()=>r(null),7000))
+          ]);
+          finish(lib||null);
+        }catch(e){finish(null);}
+      };
+      script.onerror=()=>finish(null);
+      document.head.appendChild(script);
+      setTimeout(()=>finish(null),8000);
+    });
+
+    return moduleGooglePlacesReady;
+  }
+
+  async function searchGooglePlaces(query){
+    const placesLib=await loadGooglePlaces();
+    if(!placesLib||!window.google?.maps?.places?.Place)return [];
+
+    try{
+      const request={
+        textQuery:`${query}${looksLikeNUSVenueQuery(query) ? ", National University of Singapore, Singapore" : ", Singapore"}`,
+        fields:["displayName","location","formattedAddress","googleMapsURI"],
+        locationBias:{center:{lat:1.2966,lng:103.7764},radius:5000},
+        maxResultCount:8,
+        language:"en-SG",
+        region:"sg"
+      };
+
+      const result=await Promise.race([
+        window.google.maps.places.Place.searchByText(request),
+        new Promise((_,reject)=>setTimeout(()=>reject(new Error("Google Places search timed out")),8000))
+      ]);
+
+      return (result.places||[]).map(place=>({
+        code:place.displayName?.text||query,
+        name:place.formattedAddress||"Google Maps location",
+        label:place.displayName?.text||place.formattedAddress||query,
+        lat:typeof place.location?.lat==="function"?place.location.lat():Number(place.location?.lat),
+        lng:typeof place.location?.lng==="function"?place.location.lng():Number(place.location?.lng),
+        source:"Google Maps",
+        googleMapsURI:place.googleMapsURI||"",
+        external:true
+      })).filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lng));
+    }catch(e){
+      console.warn("Google Places activity search failed:",e);
+      return [];
+    }
+  }
+
+  async function searchNominatim(query){
+    const q=String(query||"").trim();
+    if(!q)return [];
+    const queries=[q,`${q}, Singapore`];
+    const seen=new Set(),results=[];
+
+    for(const text of queries){
+      try{
+        const params=new URLSearchParams({
+          q:text,format:"jsonv2",limit:"8",countrycodes:"sg",addressdetails:"1"
+        });
+        const r=await fetch(`https://nominatim.openstreetmap.org/search?${params.toString()}`,{
+          headers:{Accept:"application/json"},cache:"no-store"
+        });
+        if(!r.ok)continue;
+        const data=await r.json();
+
+        for(const x of data){
+          const lat=Number(x.lat),lng=Number(x.lon);
+          if(!Number.isFinite(lat)||!Number.isFinite(lng))continue;
+          const key=`${lat.toFixed(6)},${lng.toFixed(6)}`;
+          if(seen.has(key))continue;
+          seen.add(key);
+          results.push({
+            code:x.name||q,
+            label:x.name||x.display_name||q,
+            name:x.display_name||"External map location",
+            lat,lng,source:"OpenStreetMap",external:true
+          });
+        }
+        if(results.length>=8)break;
+      }catch(e){
+        console.warn("Nominatim activity search failed:",e);
+      }
+    }
+    return results.slice(0,8);
+  }
+
+  async function searchPhoton(query){
+    const q=String(query||"").trim();
+    if(!q)return [];
+    try{
+      const params=new URLSearchParams({q:`${q}, Singapore`,limit:"8",lang:"en"});
+      const r=await fetch(`https://photon.komoot.io/api/?${params.toString()}`,{
+        headers:{Accept:"application/json"},cache:"no-store"
+      });
+      if(!r.ok)return [];
+      const data=await r.json();
+      return (data.features||[]).map(f=>{
+        const [lng,lat]=f.geometry?.coordinates||[];
+        const p=f.properties||{};
+        const name=p.name||p.street||q;
+        const parts=[p.name,p.street,p.housenumber,p.suburb,p.city,p.country].filter(Boolean);
+        return {
+          code:name,label:name,name:parts.join(", ")||q,
+          lat:Number(lat),lng:Number(lng),source:"External map",external:true
+        };
+      }).filter(x=>Number.isFinite(x.lat)&&Number.isFinite(x.lng))
+        .filter(x=>x.lat>=1&&x.lat<=2&&x.lng>=103&&x.lng<=104);
+    }catch(e){
+      console.warn("Photon activity search failed:",e);
+      return [];
+    }
+  }
+
+  async function searchExternalMap(query){
+    const googleMatches=await searchGooglePlaces(query);
+    if(googleMatches.length)return googleMatches;
+
+    const osmMatches=await searchNominatim(query);
+    if(osmMatches.length)return osmMatches;
+
+    return await searchPhoton(query);
+  }
+
+  function renderLocationResults(results,box,onSelect){
+    if(!results.length){
+      box.innerHTML=`<div class="subtle">No locations found. Try a fuller venue name or Singapore address.</div>`;
+      return;
+    }
+
+    box.innerHTML=results.map((v,i)=>`
+      <button type="button" class="venue-result" data-location-result="${i}">
+        <span><b>${esc(v.label||v.code)}</b><small>${esc(v.name||"")} · ${esc(v.source||"")}</small></span><span>⌖</span>
+      </button>
+    `).join("");
+
+    $$(".venue-result",box).forEach((el,i)=>el.onclick=()=>onSelect(results[i]));
+  }
+
+
+  function setupModuleLocationSearch(list,draft){
+    if(!list)return;
+
+    $$(".edit-lesson-row",list).forEach((rowEl,index)=>{
+      const input=rowEl.querySelector(".module-venue-input");
+      const btn=rowEl.querySelector(".module-venue-search-btn");
+      const box=rowEl.querySelector(".module-venue-results");
+      const source=rowEl.querySelector(".module-venue-source");
+      if(!input||!btn||!box)return;
+
+      const existing=String(input.value||"").trim();
+      let selected=null;
+      if(existing) source.textContent="Current venue";
+
+      const choose=location=>{
+        selected=location;
+        input.value=location.label||location.code||location.name||"";
+        draft[index].venue=input.value;
+        draft[index].venueLat=location.lat??null;
+        draft[index].venueLng=location.lng??null;
+        draft[index].venueSource=location.source||"Map search";
+        source.textContent=`Selected from ${location.source||"map search"}`;
+        box.innerHTML=`<div class="subtle">Selected: <b>${esc(input.value)}</b> · ${esc(location.source||"Map search")}</div>`;
+      };
+
+      const localSuggest=async()=>{
+        await loadModuleVenueData();
+        const q=input.value.trim();
+        if(!q){
+          box.innerHTML=`<div class="subtle">Search NUS venues first. If there is no NUSMods match, press Search for external maps.</div>`;
+          return;
+        }
+        const matches=findNUSMatches(q,8);
+        if(matches.length){ renderLocationResults(matches,box,choose); return; }
+        if(q.length<3){
+          box.innerHTML=`<div class="subtle">No NUSMods match yet. Keep typing, or press Search for external maps.</div>`;
+          return;
+        }
+        clearTimeout(moduleVenueSearchTimer);
+        moduleVenueSearchTimer=setTimeout(async()=>{
+          const external=await searchPhoton(q);
+          if(external.length) renderLocationResults(external,box,choose);
+          else box.innerHTML=`<div class="subtle">No NUSMods match. Press Search to search external maps.</div>`;
+        },350);
+      };
+
+      input.addEventListener("input",()=>{
+        selected=null;
+        draft[index].venue=input.value;
+        draft[index].venueLat=null;
+        draft[index].venueLng=null;
+        draft[index].venueSource="Manual entry";
+        source.textContent="No location selected";
+        localSuggest();
+      });
+
+      btn.addEventListener("click",async()=>{
+        const q=input.value.trim();
+        if(!q){ localSuggest(); return; }
+        box.innerHTML='<div class="import-box"><div class="spinner"></div>Searching NUSMods first…</div>';
+        box.classList.remove("hidden");
+        await loadModuleVenueData();
+        const nus=findNUSMatches(q,10);
+        if(nus.length){ renderLocationResults(nus,box,choose); return; }
+        box.innerHTML='<div class="import-box"><div class="spinner"></div>No NUSMods venue found. Searching external maps…</div>';
+        const external=await searchExternalMap(q);
+        renderLocationResults(external,box,choose);
+      });
+
+      input.addEventListener("keydown",e=>{
+        if(e.key==="Enter"){ e.preventDefault(); btn.click(); }
+      });
+
+      if(existing) localSuggest();
+    });
+  }
+
   window.editModule=function(i,passedDraft=null){
     const mod=state.modules[i]; if(!mod)return;
     let draft=passedDraft ? passedDraft.map(x=>({...x})) :
@@ -79,7 +332,16 @@ document.addEventListener("DOMContentLoaded",()=>{
         </div>
         <div class="two-col">
           <label>Day<select data-field="day">${["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"].map(d=>`<option value="${d}" ${l.day===d?"selected":""}>${d}</option>`).join("")}</select></label>
-          <label>Venue<input data-field="venue" value="${esc(l.venue||"")}" placeholder="LT1"></label>
+          <label>Venue
+            <div class="venue-search-box module-venue-search-box">
+              <input data-field="venue" class="modal-search module-venue-input" value="${esc(l.venue||"")}" placeholder="Search LT27, COM1, MPSH..." autocomplete="off">
+              <button type="button" class="secondary compact module-venue-search-btn">Search</button>
+            </div>
+            <div class="small-help module-venue-source">No location selected</div>
+            <div class="venue-results module-venue-results">
+              <div class="subtle">NUSMods venues are searched first. If no match is found, Search will use external maps.</div>
+            </div>
+          </label>
         </div>
         <div class="two-col">
           <label>Start<input type="time" data-field="startTime" value="${esc(startValue)}" required></label>
@@ -92,6 +354,7 @@ document.addEventListener("DOMContentLoaded",()=>{
     function renderDraft(){
       const list=$("#editLessonList");
       list.innerHTML=draft.length?draft.map(row).join(""):`<div class="empty">No lesson timings. Add one below.</div>`;
+      setupModuleLocationSearch(list,draft);
       $$(".remove-lesson",list).forEach(btn=>btn.onclick=()=>{
         draft.splice(Number(btn.dataset.index),1);
         renderDraft();
@@ -152,7 +415,10 @@ document.addEventListener("DOMContentLoaded",()=>{
           // older/partially migrated lesson object.
           startTime:startField ? (startField.value || editTimeValue(base.startTime||base.start||base.start_time||"")) : (base.startTime||""),
           endTime:endField ? (endField.value || editTimeValue(base.endTime||base.end||base.end_time||"")) : (base.endTime||""),
-          venue:venueField ? venueField.value : (base.venue||"")
+          venue:venueField ? venueField.value : (base.venue||""),
+          venueLat:base.venueLat??null,
+          venueLng:base.venueLng??null,
+          venueSource:base.venueSource||"Manual entry"
         });
 
         updated.push(base);
