@@ -76,14 +76,17 @@ document.addEventListener("DOMContentLoaded",()=>{
       console.warn("Could not load NUSMods module venues:",e);
     }
 
+    // NUSMods venue names and the NUS Campus Map are separate data sources.
+    // Use the official NUS Campus Map search endpoint for coordinates instead
+    // of relying on a GitHub JSON path that may return an HTML 404 page.
     try{
-      const r=await fetch("https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json",{cache:"no-store"});
+      const r=await fetch("https://map.nus.edu.sg/index.php/search/ajax_auto",{cache:"no-store"});
       if(r.ok){
         const data=await r.json();
-        if(data&&typeof data==="object")moduleNUSModsCoordinates=data;
+        if(Array.isArray(data)) moduleNUSModsCoordinates=data;
       }
     }catch(e){
-      console.warn("Could not load NUSMods module venue coordinates:",e);
+      console.warn("Could not load NUS Campus Map locations:",e);
     }
   }
 
@@ -102,6 +105,26 @@ document.addEventListener("DOMContentLoaded",()=>{
   function getNUSModsCoordinates(code){
     if(!moduleNUSModsCoordinates)return null;
     const wanted=normaliseCode(code);
+
+    // NUS Campus Map ajax_auto records use place_code/location_name/
+    // place_name plus lat/long.
+    if(Array.isArray(moduleNUSModsCoordinates)){
+      const match=moduleNUSModsCoordinates.find(x=>{
+        if(x?.lat==null || x?.long==null)return false;
+        const fields=[x.place_code,x.location_name,x.place_name,x.description].map(normaliseCode);
+        return fields.some(f=>f===wanted || (wanted.length>=4 && f.includes(wanted)));
+      });
+      if(match){
+        const lat=Number(match.lat), lng=Number(match.long);
+        if(Number.isFinite(lat)&&Number.isFinite(lng)){
+          return {lat,lng,source:"NUS Campus Map"};
+        }
+      }
+      return null;
+    }
+
+    // Backwards-compatible support if NUSMods later exposes its coordinate
+    // database directly in object form.
     for(const [key,value] of Object.entries(moduleNUSModsCoordinates)){
       if(normaliseCode(key)!==wanted)continue;
       const x=Number(value?.location?.x), y=Number(value?.location?.y);

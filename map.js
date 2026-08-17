@@ -787,18 +787,18 @@ function filterBusStops(route){
 
 async function loadNUSModsVenueCoordinates(){
   try{
-    // NUSMods itself maintains this coordinate dataset for its optimiser.
-    // It maps venue codes to precise GPS coordinates (x=longitude, y=latitude).
-    const url="https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json";
-    const r=await fetch(url,{cache:"no-store"});
-    if(!r.ok)throw new Error(`NUSMods coordinate database returned ${r.status}`);
+    // Use the official NUS Campus Map search dataset for reliable GPS
+    // coordinates. NUSMods' venue list supplies the venue names/codes, while
+    // the campus map supplies the physical coordinates.
+    const r=await fetch("https://map.nus.edu.sg/index.php/search/ajax_auto",{cache:"no-store"});
+    if(!r.ok)throw new Error(`NUS Campus Map returned ${r.status}`);
     const data=await r.json();
-    if(!data || typeof data!=="object")throw new Error("Invalid NUSMods coordinate database");
+    if(!Array.isArray(data))throw new Error("Invalid NUS Campus Map location data");
     nusmodsVenueCoordinates=data;
-    console.info(`Loaded ${Object.keys(data).length} NUSMods venue coordinates.`);
+    console.info(`Loaded ${data.length} NUS Campus Map locations.`);
   }catch(e){
     nusmodsVenueCoordinates=null;
-    console.warn("Could not load NUSMods venue coordinates:",e);
+    console.warn("Could not load NUS Campus Map locations:",e);
   }
 }
 
@@ -806,19 +806,23 @@ function getNUSModsCoordinates(code){
   if(!nusmodsVenueCoordinates)return null;
   const wanted=normaliseCode(code);
 
-  for(const [key,value] of Object.entries(nusmodsVenueCoordinates)){
-    if(normaliseCode(key)!==wanted)continue;
-    const x=Number(value?.location?.x);
-    const y=Number(value?.location?.y);
-    if(Number.isFinite(x)&&Number.isFinite(y)){
-      return {
-        lat:y,
-        lng:x,
-        floor:value?.floor ?? null,
-        roomName:value?.roomName || "",
-        source:"NUSMods venue coordinates"
-      };
+  if(Array.isArray(nusmodsVenueCoordinates)){
+    const match=nusmodsVenueCoordinates.find(x=>{
+      if(x?.lat==null || x?.long==null)return false;
+      const fields=[x.place_code,x.location_name,x.place_name,x.description].map(normaliseCode);
+      return fields.some(f=>f===wanted || (wanted.length>=4 && f.includes(wanted)));
+    });
+    if(match){
+      const lat=Number(match.lat), lng=Number(match.long);
+      if(Number.isFinite(lat)&&Number.isFinite(lng)){
+        return {
+          lat,lng,
+          displayName:match.place_name||match.location_name||code,
+          source:"NUS Campus Map"
+        };
+      }
     }
+    return null;
   }
 
   return null;

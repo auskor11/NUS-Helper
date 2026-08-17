@@ -656,3 +656,10 @@ This is an independent personal student project and is not affiliated with or en
 - Fixed the module location search crash caused by the missing `normaliseCode` helper copied from the Activity search implementation.
 - Venue searches now normalise spaces/hyphens/case, so `COM1-0210`, `com1 0210`, and `COM1 0210` match consistently.
 - Added a final loading-state safeguard so failed searches cannot leave the UI stuck indefinitely.
+
+
+## V95 — NUS venue map coordinate fix
+- Fixed venues such as COM1-0210 being recognised by NUSMods but failing to appear on the map.
+- NUSMods is still the first source for venue search/name matching, while the official NUS Campus Map now supplies the physical GPS coordinates.
+- Removed reliance on the previous GitHub coordinate JSON endpoint, which could return a non-JSON/404 response and leave coordinates unavailable.
+- Map lookup now uses the same NUS Campus Map coordinate source as module venue selection.
