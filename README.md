@@ -650,3 +650,9 @@ This is an independent personal student project and is not affiliated with or en
 - Fixed the module venue search spinner: V92 was missing the NUSMods venue-loading/matching functions used by the new module location picker.
 - Module venue search now correctly loads NUSMods venues, ranks exact/prefix/name matches, and falls back to external maps when no NUSMods venue matches.
 - Added error handling so a failed network search cannot leave the location picker stuck on a loading spinner.
+
+
+## V94 — Module venue search helper fix
+- Fixed the module location search crash caused by the missing `normaliseCode` helper copied from the Activity search implementation.
+- Venue searches now normalise spaces/hyphens/case, so `COM1-0210`, `com1 0210`, and `COM1 0210` match consistently.
+- Added a final loading-state safeguard so failed searches cannot leave the UI stuck indefinitely.

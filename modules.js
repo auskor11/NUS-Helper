@@ -6,6 +6,10 @@ document.addEventListener("DOMContentLoaded",()=>{
   let moduleGooglePlacesReady=null;
   let moduleVenueSearchTimer=null;
 
+  // Keep venue searches consistent with the Activity location picker:
+  // COM1-0210, com1 0210, and COM1 0210 should all match the same venue.
+  const normaliseCode=s=>String(s||"").toUpperCase().replace(/[^A-Z0-9]/g,"");
+
   render();
 
   function render(){
@@ -60,7 +64,8 @@ document.addEventListener("DOMContentLoaded",()=>{
 
     moduleVenueList=[];
     try{
-      const r=await fetch(`${NUSMODS_BASE}/semesters/${SEMESTER}/venues.json`,{cache:"no-store"});
+      const url=`${NUSMODS_BASE}/semesters/${SEMESTER}/venues.json`;
+      const r=await fetch(url,{cache:"no-store"});
       if(r.ok){
         const data=await r.json();
         moduleVenueList=Array.isArray(data)
@@ -404,6 +409,9 @@ document.addEventListener("DOMContentLoaded",()=>{
         }catch(err){
           console.warn("External venue search failed:",err);
           box.innerHTML='<div class="subtle">Location search failed. Please try again or enter the venue manually.</div>';
+        }finally{
+          // Never leave a search UI in a loading state.
+          box.querySelector(".spinner")?.remove();
         }
       });
 
