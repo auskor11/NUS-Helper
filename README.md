@@ -644,3 +644,9 @@ This is an independent personal student project and is not affiliated with or en
 - Added the Activity-style location picker to module lesson editing.
 - Module venue search prioritises NUSMods venues first and falls back to external map search when there is no NUSMods match.
 - Selected venue coordinates/source are retained with the lesson when saved.
+
+
+## V93 — Module venue search fix
+- Fixed the module venue search spinner: V92 was missing the NUSMods venue-loading/matching functions used by the new module location picker.
+- Module venue search now correctly loads NUSMods venues, ranks exact/prefix/name matches, and falls back to external maps when no NUSMods venue matches.
+- Added error handling so a failed network search cannot leave the location picker stuck on a loading spinner.

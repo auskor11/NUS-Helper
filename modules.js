@@ -55,6 +55,102 @@ document.addEventListener("DOMContentLoaded",()=>{
     state.modules.splice(i,1); state.lessons=state.lessons.filter(l=>l.module!==code); save(); render(); toast(`${code} removed`);
   };
 
+  async function loadModuleVenueData(){
+    if(moduleVenueList!==null)return;
+
+    moduleVenueList=[];
+    try{
+      const r=await fetch(`${NUSMODS_BASE}/semesters/${SEMESTER}/venues.json`,{cache:"no-store"});
+      if(r.ok){
+        const data=await r.json();
+        moduleVenueList=Array.isArray(data)
+          ? data.map(normaliseVenue).filter(Boolean)
+          : Object.keys(data||{}).map(k=>normaliseVenue(data[k],k)).filter(Boolean);
+      }
+    }catch(e){
+      console.warn("Could not load NUSMods module venues:",e);
+    }
+
+    try{
+      const r=await fetch("https://raw.githubusercontent.com/nusmodifications/nusmods/master/website/api/optimiser/_constants/venues.json",{cache:"no-store"});
+      if(r.ok){
+        const data=await r.json();
+        if(data&&typeof data==="object")moduleNUSModsCoordinates=data;
+      }
+    }catch(e){
+      console.warn("Could not load NUSMods module venue coordinates:",e);
+    }
+  }
+
+  function normaliseVenue(v,key=""){
+    if(typeof v==="string")return {code:v,name:v};
+    if(!v||typeof v!=="object")return key?{code:key,name:key}:null;
+    const code=v.venue||v.code||v.name||v.venueCode||key;
+    if(!code)return null;
+    return {
+      code:String(code),
+      name:String(v.name||v.venue||v.location_name||code),
+      raw:v
+    };
+  }
+
+  function getNUSModsCoordinates(code){
+    if(!moduleNUSModsCoordinates)return null;
+    const wanted=normaliseCode(code);
+    for(const [key,value] of Object.entries(moduleNUSModsCoordinates)){
+      if(normaliseCode(key)!==wanted)continue;
+      const x=Number(value?.location?.x), y=Number(value?.location?.y);
+      if(Number.isFinite(x)&&Number.isFinite(y)){
+        return {lat:y,lng:x,source:"NUSMods venue coordinates"};
+      }
+    }
+    return null;
+  }
+
+  function moduleVenueCandidates(){
+    const byCode=new Map();
+    for(const v of moduleVenueList||[]){
+      const key=normaliseCode(v.code);
+      if(!key)continue;
+      const coords=getNUSModsCoordinates(v.code);
+      byCode.set(key,{
+        code:v.code,
+        name:v.name,
+        lat:coords?.lat??null,
+        lng:coords?.lng??null,
+        source:coords?"NUSMods coordinates":"NUSMods"
+      });
+    }
+    return [...byCode.values()];
+  }
+
+  function findNUSMatches(query,limit=10){
+    const q=normaliseCode(query);
+    if(!q)return [];
+
+    return moduleVenueCandidates()
+      .map(v=>{
+        const code=normaliseCode(v.code);
+        const name=normaliseCode(v.name);
+        let score=0;
+        if(code===q)score=100;
+        else if(code.startsWith(q))score=80;
+        else if(name.includes(q))score=60;
+        else if(code.includes(q))score=40;
+        return {...v,score};
+      })
+      .filter(v=>v.score>0)
+      .sort((a,b)=>b.score-a.score||a.code.localeCompare(b.code))
+      .slice(0,limit);
+  }
+
+  function looksLikeNUSVenueQuery(query){
+    const q=String(query||"").trim().toUpperCase();
+    return /^(LT|UT|COM|AS|EA|E|SDE|MD|SOC|MPSH|TP|RVRC|PGPR|R|BTC|CLB|NUS)\b/.test(q)
+      || q.includes("NUS")
+      || q.includes("NATIONAL UNIVERSITY");
+  }
+
   function loadGooglePlaces(){
     if(moduleGooglePlacesReady)return moduleGooglePlacesReady;
     const key=window.NUS_GOOGLE_MAPS_API_KEY;
@@ -253,7 +349,11 @@ document.addEventListener("DOMContentLoaded",()=>{
       };
 
       const localSuggest=async()=>{
-        await loadModuleVenueData();
+        try{
+          await loadModuleVenueData();
+        }catch(err){
+          console.warn("NUSMods venue suggestions failed:",err);
+        }
         const q=input.value.trim();
         if(!q){
           box.innerHTML=`<div class="subtle">Search NUS venues first. If there is no NUSMods match, press Search for external maps.</div>`;
@@ -288,12 +388,23 @@ document.addEventListener("DOMContentLoaded",()=>{
         if(!q){ localSuggest(); return; }
         box.innerHTML='<div class="import-box"><div class="spinner"></div>Searching NUSMods first…</div>';
         box.classList.remove("hidden");
-        await loadModuleVenueData();
+        try{
+          await loadModuleVenueData();
+        }catch(err){
+          console.warn("NUSMods venue search failed:",err);
+        }
+
         const nus=findNUSMatches(q,10);
         if(nus.length){ renderLocationResults(nus,box,choose); return; }
+
         box.innerHTML='<div class="import-box"><div class="spinner"></div>No NUSMods venue found. Searching external maps…</div>';
-        const external=await searchExternalMap(q);
-        renderLocationResults(external,box,choose);
+        try{
+          const external=await searchExternalMap(q);
+          renderLocationResults(external,box,choose);
+        }catch(err){
+          console.warn("External venue search failed:",err);
+          box.innerHTML='<div class="subtle">Location search failed. Please try again or enter the venue manually.</div>';
+        }
       });
 
       input.addEventListener("keydown",e=>{
