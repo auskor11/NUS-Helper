@@ -1,4 +1,4 @@
-name: NUS Helper Push Reminders
+name: NUS Companion Push Reminders
 
 on:
   schedule:
@@ -18,18 +18,15 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
-
       - name: Setup Node
         uses: actions/setup-node@v4
         with:
           node-version: 20
           cache: npm
           cache-dependency-path: push-server/package.json
-
       - name: Install push server dependencies
         working-directory: push-server
         run: npm install --omit=dev
-
       - name: Send due reminders
         env:
           FIREBASE_SERVICE_ACCOUNT_JSON: ${{ secrets.FIREBASE_SERVICE_ACCOUNT_JSON }}
@@ -38,4 +35,4 @@ jobs:
           VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
           PUSH_TEST: ${{ inputs.test_notification || 'false' }}
         working-directory: push-server
-        run: node send-reminders_v2.mjs
+        run: node send-reminders.mjs
