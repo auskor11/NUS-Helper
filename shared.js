@@ -1,33 +1,19 @@
-
-/* NUS Companion V3 - shared app logic */
+/* NUS Companion - shared data, cloud sync, reminders and NUSMods helpers.
+ * Loaded before the app scripts in app/. Everything here is a global so the
+ * native iOS shell (NUS Helper IPA/native/native-app.js) can wrap it.
+ */
 
 const ACADEMIC_YEAR = "2026-2027";
 const SEMESTER = "1";
 const NUSMODS_BASE = `https://api.nusmods.com/v2/${ACADEMIC_YEAR}`;
+const DAYS = ["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
 
 const $ = (s, r=document) => r.querySelector(s);
 const $$ = (s, r=document) => [...r.querySelectorAll(s)];
 
-const DEFAULT_MODULES = [
-  {code:"CS1101S", name:"Programming Methodology"},
-  {code:"CS1231S", name:"Discrete Structures"},
-  {code:"GEA1000", name:"Quantitative Reasoning"},
-  {code:"MA1522", name:"Calculus for Computing"}
-];
-
-const defaultActivities = [
-  {id:"default-basketball", name:"Basketball Training", club:"NUS Basketball", module:"", recurring:true, day:"Wednesday", date:"", startTime:"19:00", endTime:"21:00", venue:"MPSH"},
-  {id:"default-marketing", name:"Marketing Meeting", club:"Tech Society", module:"", recurring:true, day:"Friday", date:"", startTime:"18:30", endTime:"20:00", venue:"COM3"}
-];
-
-const defaultTasks = [
-  {id:"default-task-1", title:"CS1231S Tutorial 2", module:"CS1231S", dueDate:"2026-08-18", dueTime:"23:59", done:false},
-  {id:"default-task-2", title:"GEA1000 Reading", module:"GEA1000", dueDate:"2026-08-20", dueTime:"23:59", done:false}
-];
-
 function clone(v){ return JSON.parse(JSON.stringify(v)); }
-
-function read(key, fallback){ return clone(fallback); }
+function uid(){ return crypto.randomUUID?.() || String(Date.now()+Math.random()); }
+function isNativeApp(){ return !!window.Capacitor?.isNativePlatform?.(); }
 
 const state = {
   modules: [],
@@ -37,24 +23,29 @@ const state = {
   semester: {academicYear:ACADEMIC_YEAR, semester:SEMESTER}
 };
 
+/* ---------- Cloud save ---------- */
+
 let cloudSaveTimer = null;
 let cloudSyncStop = null;
-let cloudSyncActive = false;
 let lastLocalCloudChangeAt = 0;
 let lastRemoteCloudChangeAt = 0;
+let cloudWriteQueue = Promise.resolve();
+let accountDataReady = false;
+let activeAccountUid = null;
 
-let cloudWriteQueue=Promise.resolve();
-let accountDataReady=false;
-let activeAccountUid=null;
-
+// Every edit calls save(). Writes are debounced and queued so rapid edits
+// collapse into one Firestore write and never overtake each other.
 async function save(options={}){
   const api=window.nusFirebase;
   if(!api?.configured || !api?.user) throw new Error("You must be signed in to save.");
   if(!accountDataReady || activeAccountUid!==api.user.uid) throw new Error("Your account data is still loading. Please wait.");
+  lastLocalCloudChangeAt=Date.now();
+  window.dispatchEvent(new CustomEvent("nus-data-changed"));
   const snapshot=clone(state);
   const write=()=>api.saveState(snapshot);
 
   if(options.immediate){
+    clearTimeout(cloudSaveTimer);
     cloudWriteQueue=cloudWriteQueue.then(write,write);
     return cloudWriteQueue;
   }
@@ -65,12 +56,101 @@ async function save(options={}){
       cloudWriteQueue=cloudWriteQueue.then(write,write);
       cloudWriteQueue.then(resolve).catch(err=>{
         console.error("Cloud save failed",err);
-        toast("Could not save to Firebase. Please try again.");
+        toast("Could not save to the cloud. Please try again.");
         reject(err);
       });
     },350);
   });
 }
+
+function readableFirebaseError(error){
+  const map={
+    "auth/unauthorized-domain":"This domain is not authorised in Firebase Authentication.",
+    "auth/operation-not-allowed":"This sign-in method is not enabled in Firebase.",
+    "auth/popup-closed-by-user":"Sign-in was cancelled.",
+    "auth/network-request-failed":"Could not connect to the network.",
+  };
+  return map[error?.code] || error?.message || "Something went wrong.";
+}
+
+function resetState(){
+  state.modules=[];
+  state.lessons=[];
+  state.activities=[];
+  state.tasks=[];
+  state.semester={academicYear:ACADEMIC_YEAR, semester:SEMESTER};
+  lastRemoteCloudChangeAt=0;
+}
+
+// Starts realtime sync for the signed-in user. Resolves once their data has
+// been loaded for the first time (or confirmed empty for a new account).
+function startCloudSync(){
+  const api=window.nusFirebase;
+  let resolveReady;
+  const ready=new Promise(r=>{resolveReady=r;});
+
+  const apply=remote=>{
+    const user=api?.user;
+    if(!user) return;
+    if(activeAccountUid && activeAccountUid!==user.uid) return;
+    activeAccountUid=user.uid;
+
+    if(remote){
+      const changedAt=Number(remote.clientUpdatedAt||0);
+      // Ignore echoes of our own older writes and duplicate snapshots.
+      if(changedAt && changedAt < lastLocalCloudChangeAt) return;
+      if(changedAt && changedAt === lastRemoteCloudChangeAt && accountDataReady) return;
+      lastRemoteCloudChangeAt=changedAt || Date.now();
+      if(Array.isArray(remote.modules)) state.modules=remote.modules;
+      if(Array.isArray(remote.lessons)) state.lessons=remote.lessons;
+      if(Array.isArray(remote.activities)) state.activities=remote.activities;
+      if(Array.isArray(remote.tasks)) state.tasks=remote.tasks;
+      if(remote.semester) state.semester=remote.semester;
+    }
+
+    accountDataReady=true;
+    resolveReady();
+    window.dispatchEvent(new CustomEvent("nus-cloud-state-applied"));
+    window.dispatchEvent(new CustomEvent("nus-data-changed"));
+  };
+
+  resetState();
+  activeAccountUid=api.user.uid;
+  accountDataReady=false;
+
+  if(cloudSyncStop) cloudSyncStop();
+  cloudSyncStop=api.startStateSync(apply,err=>{
+    console.error("Realtime cloud sync failed",err);
+    toast("Live sync paused. Your changes are still saved.");
+  });
+
+  // A brand-new account has no document, so the realtime listener never
+  // fires. Load once directly so the app can start either way.
+  api.loadState().then(apply).catch(err=>{
+    console.error("Initial cloud load failed",err);
+    toast("Could not load your data. Check your connection.");
+    accountDataReady=true;
+    resolveReady();
+  });
+
+  return ready;
+}
+
+async function syncNow(){
+  await window.nusFirebase.saveState(state);
+  toast("Synced");
+}
+
+async function signOutUser(){
+  if(cloudSyncStop){ cloudSyncStop(); cloudSyncStop=null; }
+  accountDataReady=false;
+  activeAccountUid=null;
+  resetState();
+  await window.nusFirebase.signOut();
+  location.replace("/login.html");
+}
+
+/* ---------- Formatting helpers ---------- */
 
 function esc(v=""){
   return String(v).replace(/[&<>"']/g, c => ({'&':'&amp;','<':'&lt;','>':'&gt;','"':'&quot;',"'":'&#039;'}[c]));
@@ -99,11 +179,15 @@ function timeToMinutes(v){
   return null;
 }
 
+function minutesToInput(m){
+  if(m==null) return "";
+  return `${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;
+}
+
 function minutesLabel(m){
   if(m==null) return "TBC";
   const h=Math.floor(m/60), min=m%60;
-  const suffix=h>=12?"PM":"AM";
-  return `${h%12||12}:${String(min).padStart(2,"0")} ${suffix}`;
+  return `${h%12||12}:${String(min).padStart(2,"0")} ${h>=12?"PM":"AM"}`;
 }
 
 function inputTimeToLabel(v){ return v ? minutesLabel(timeToMinutes(v)) : "TBC"; }
@@ -124,650 +208,214 @@ function addDays(d,n){ const x=new Date(d); x.setDate(x.getDate()+n); return x; 
 
 function startOfWeek(d){
   const x=new Date(d);
-  const monday=(x.getDay()+6)%7;
-  x.setDate(x.getDate()-monday);
+  x.setDate(x.getDate()-(x.getDay()+6)%7);
   x.setHours(0,0,0,0);
   return x;
 }
 
 function sameDay(a,b){ return a.toDateString()===b.toDateString(); }
+function dayName(d){ return DAYS[(d.getDay()+6)%7]; }
 
 function fmtDate(s){
   if(!s) return "No date";
   return new Date(`${s}T12:00:00`).toLocaleDateString("en-SG",{day:"numeric",month:"short",year:"numeric"});
 }
 
+// "Today", "Tomorrow", "Wed", or "12 Nov" relative to now.
+function relativeDay(d){
+  const today=new Date(); today.setHours(0,0,0,0);
+  const x=new Date(d); x.setHours(0,0,0,0);
+  const diff=Math.round((x-today)/86400000);
+  if(diff===0) return "Today";
+  if(diff===1) return "Tomorrow";
+  if(diff===-1) return "Yesterday";
+  if(diff>1 && diff<7) return x.toLocaleDateString("en-SG",{weekday:"long"});
+  return x.toLocaleDateString("en-SG",{day:"numeric",month:"short"});
+}
+
+function durationLabel(mins){
+  if(mins<1) return "now";
+  if(mins<60) return `${mins} min`;
+  const h=Math.floor(mins/60), m=mins%60;
+  if(h<24) return m?`${h}h ${m}m`:`${h}h`;
+  const d=Math.round(h/24);
+  return `${d} day${d===1?"":"s"}`;
+}
+
 function moduleName(code){ return state.modules.find(m=>m.code===code)?.name || code || "No module"; }
 
-function mapLocationLink(location, prefix="⌖ "){
-  const label=String(location||"").trim();
-  if(!label || /^(TBC|N\/A|DEADLINE)$/i.test(label)) return esc(label||"Venue TBC");
-  return `<a class="map-location-link" href="/map.html?location=${encodeURIComponent(label)}" title="Open ${esc(label)} on NUS Map">${esc(prefix)}${esc(label)}</a>`;
-}
-
-function pageShell(page, title, icon){
-  return `
-    <aside class="sidebar">
-      <div class="brand">
-        <div class="brand-mark">N</div>
-        <div><strong>NUS Companion</strong><span>Student dashboard</span></div>
-        <button class="sidebar-close" id="sidebarClose" type="button" aria-label="Close sidebar">×</button>
-      </div>
-      <nav>
-        <a class="nav-item ${page==="home"?"active":""}" href="/index.html">⌂ <span>Home</span></a>
-        <a class="nav-item ${page==="calendar"?"active":""}" href="/calendar.html">◫ <span>Calendar</span></a>
-        <a class="nav-item ${page==="modules"?"active":""}" href="/modules.html">▣ <span>Modules</span></a>
-        <a class="nav-item ${page==="activities"?"active":""}" href="/activities.html">◎ <span>Activities</span></a>
-        <a class="nav-item ${page==="tasks"?"active":""}" href="/tasks.html">✓ <span>Tasks</span></a>
-        <a class="nav-item ${page==="map"?"active":""}" href="/map.html">⌖ <span>Map</span></a>
-        <a class="nav-item ${page==="bus"?"active":""}" href="/bus.html">🚌 <span>Bus Timings</span></a>
-      </nav>
-      <div class="sidebar-bottom">
-        <button class="ghost-btn" id="themeBtn">☀ <span>Light mode</span></button>
-        <button class="ghost-btn" id="installBtn" hidden>＋ <span>Install app</span></button>
-      </div>
-    </aside>
-    <button class="sidebar-open" id="sidebarOpen" type="button" aria-label="Open sidebar">☰</button>
-    <main class="main">
-      <header class="topbar">
-        <button class="mobile-menu" id="menuBtn">☰</button>
-        <div><p class="eyebrow">${new Date().toLocaleDateString("en-SG",{weekday:"long",day:"numeric",month:"long",year:"numeric"})}</p><h1>${esc(title)}</h1></div>
-        <div class="top-actions"><button class="icon-btn" id="notifyBtn" title="Enable notifications">🔔</button><button class="avatar" id="accountBtn" title="Firebase account">A</button></div>
-      </header>
-      <section class="view">${icon}</section>
-    </main>
-  `;
-}
-
-
-function setupSidebarControls(){
-  const body=document.body;
-  const sidebar=$(".sidebar");
-  const closeBtn=$("#sidebarClose");
-  const openBtn=$("#sidebarOpen");
-  const menuBtn=$("#menuBtn");
-  if(!sidebar)return;
-
-  const key="nus_sidebar_collapsed";
-  const apply=()=>{
-    const collapsed=localStorage.getItem(key)==="1";
-    body.classList.toggle("sidebar-collapsed",collapsed);
-    if(openBtn) openBtn.hidden=!collapsed;
-    if(closeBtn) closeBtn.hidden=collapsed;
-  };
-  const setMobileOpen=(open)=>{
-    sidebar.classList.toggle("open",open);
-    if(menuBtn){
-      menuBtn.textContent=open?"×":"☰";
-      menuBtn.setAttribute("aria-expanded",String(open));
-      // The topbar button must disappear while the drawer is open, otherwise
-      // it becomes a second close button behind the drawer on mobile.
-      menuBtn.classList.remove("sidebar-menu-hidden");
-    }
-  };
-  closeBtn?.addEventListener("click",()=>{
-    setMobileOpen(false);
-    localStorage.setItem(key,"0");
-    apply();
-  });
-  openBtn?.addEventListener("click",()=>{
-    localStorage.setItem(key,"0");
-    apply();
-    setMobileOpen(true);
-  });
-  menuBtn?.addEventListener("click",()=>{
-    localStorage.setItem(key,"0");
-    setMobileOpen(!sidebar.classList.contains("open"));
-    apply();
-  });
-  apply();
-}
-
-async function requireAuthentication(){
-  if(document.body.dataset.page==="login") return true;
-
-  try{
-    const api=await window.nusFirebaseReady;
-    if(!api || !api.configured){
-      location.replace("/login.html");
-      return false;
-    }
-
-    // Critical: don't redirect until Firebase has finished restoring the
-    // persisted Google/email session from IndexedDB/local storage.
-    const user=await window.nusAuthReady;
-    if(!user){
-      location.replace("/login.html");
-      return false;
-    }
-
-    return true;
-  }catch(e){
-    console.error("Authentication guard failed",e);
-    location.replace("/login.html");
-    return false;
-  }
-}
-
-
-const NOTIFICATION_KEY="nus_notification_log_v59";
-const NOTIFICATION_WINDOW_MS=60*1000;
-const DELETED_TASKS_KEY="nus_deleted_task_ids_v63";
-const DELETED_ACTIVITIES_KEY="nus_deleted_activity_ids_v63";
-
-function deletedIds(key){
-  try{return new Set(JSON.parse(localStorage.getItem(key)||"[]"));}catch{return new Set();}
-}
-function saveDeletedIds(key,set){localStorage.setItem(key,JSON.stringify([...set]));}
-function markDeletedId(key,id){
-  if(!id)return;
-  const set=deletedIds(key); set.add(String(id)); saveDeletedIds(key,set);
-}
-function clearDeletedId(key,id){
-  if(!id)return;
-  const set=deletedIds(key); set.delete(String(id)); saveDeletedIds(key,set);
-}
-
-function notificationLog(){
-  try{return JSON.parse(localStorage.getItem(NOTIFICATION_KEY)||"{}");}catch{return {};}
-}
-function saveNotificationLog(log){localStorage.setItem(NOTIFICATION_KEY,JSON.stringify(log));}
-
-function notificationTime(date){return new Date(date).getTime();}
-
-function buildNotificationItems(){
-  const now=new Date(), items=[];
-  const add=(id,title,body,when,kind="Reminder",href="/tasks.html",deadline="")=>{
-    const t=notificationTime(when);
-    if(!Number.isFinite(t))return;
-    items.push({id,title,body,when:t,kind,href,deadline});
-  };
-
-  for(const task of (state.tasks||[])){
-    if(task.done)continue;
-    if(!task.dueDate)continue;
-    const due=new Date(`${task.dueDate}T${task.dueTime||"23:59"}:00`);
-    if(Number.isNaN(due.getTime()))continue;
-    add(`${task.id}-7d`,task.title,`${task.module||"Task"} · due ${fmtDate(task.dueDate)}`,new Date(due.getTime()-7*86400000),"Task · 7 days",`/tasks.html`,fmtDate(task.dueDate));
-    add(`${task.id}-1d`,task.title,`${task.module||"Task"} · due tomorrow`,new Date(due.getTime()-86400000),"Task · 1 day",`/tasks.html`,fmtDate(task.dueDate));
-    if(due<=now)add(`${task.id}-overdue`,task.title,`${task.module||"Task"} · overdue`,due,"Task · overdue",`/tasks.html`,fmtDate(task.dueDate));
-  }
-
-  // One-day reminders for activities. For recurring activities, use the next
-  // occurrence rather than generating reminders for every historical date.
-  for(const a of (state.activities||[])){
-    let d=null;
-    if(a.recurring && a.day){
-      const names=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
-      const target=names.indexOf(a.day);
-      if(target>=0){
-        d=new Date(now); d.setHours(0,0,0,0);
-        let delta=(target-d.getDay()+7)%7;
-        if(delta===0 && now.getHours()>=12)delta=7;
-        d.setDate(d.getDate()+delta);
-      }
-    }else if(a.date){
-      d=new Date(`${a.date}T${a.startTime||"09:00"}:00`);
-    }
-    if(!d||Number.isNaN(d.getTime()))continue;
-    if(a.recurring)d.setHours(...(a.startTime||"09:00").split(":").map(Number),0,0);
-    const activityDateLabel=a.recurring ? `${a.day} (next occurrence)` : fmtDate(a.date);
-    add(`${a.id}-1d-${a.recurring?isoDate(d):a.date}`,a.name,`${a.club||"Activity"} · tomorrow`,new Date(d.getTime()-86400000),"Activity · 1 day",`/activities.html`,activityDateLabel);
-  }
-
-  return items.sort((a,b)=>a.when-b.when);
-}
-
-function cleanupNotificationLog(){
-  const validIds=new Set(buildNotificationItems().map(x=>x.id));
-  const log=notificationLog();
-  let changed=false;
-  for(const id of Object.keys(log)){
-    if(!validIds.has(id)){
-      delete log[id];
-      changed=true;
-    }
-  }
-  if(changed)saveNotificationLog(log);
-}
-
-function cleanupNotificationLog(){
-  const validIds=new Set(buildNotificationItems().map(x=>x.id));
-  const log=notificationLog();
-  let changed=false;
-  for(const id of Object.keys(log)){
-    if(!validIds.has(id)){delete log[id]; changed=true;}
-  }
-  if(changed)saveNotificationLog(log);
-}
-
-function notificationScheduleCheck(){
-  // Background Web Push is the single source of truth for reminder delivery.
-  // Intentionally no-op to prevent duplicate foreground notifications.
-}
-
-async function showAppNotification(item){
-  const payload={title:item.title,body:item.body,href:item.href};
-  try{
-    if("serviceWorker" in navigator){
-      const reg=await navigator.serviceWorker.ready;
-      if(reg?.showNotification){
-        await reg.showNotification(item.kind==="Task · overdue"?"⚠ Overdue task":`🔔 ${item.kind}`,{
-          body:payload.body,
-          tag:`nus-${item.id}`,
-          icon:"/assets/icon.svg",
-          badge:"/assets/icon.svg",
-          data:{href:payload.href}
-        });
-        return;
-      }
-    }
-    if("Notification" in window && Notification.permission==="granted"){
-      const n=new Notification(payload.title,{body:payload.body,icon:"/assets/icon.svg",tag:`nus-${item.id}`});
-      n.onclick=()=>location.href=payload.href;
-    }
-  }catch(e){console.warn("Notification failed",e);}
-}
-
-function formatNotificationCountdown(ms){
-  if(ms<=0)return "now";
-  const mins=Math.max(1,Math.round(ms/60000));
-  if(mins<60)return `${mins} min`;
-  const hours=Math.round(mins/60);
-  if(hours<24)return `${hours} hr`;
-  return `${Math.round(hours/24)} day`;
-}
-
-async function enableWebPushNotifications(){
-  if(!window.nusFirebase?.configured || !window.nusFirebase?.user){
-    toast("Please sign in before enabling push notifications.");
-    return false;
-  }
-  if(!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)){
-    toast("Web Push is not supported in this browser.");
-    return false;
-  }
-  if(!window.NUS_PUSH_CONFIG?.vapidPublicKey || window.NUS_PUSH_CONFIG.vapidPublicKey.includes("YOUR_")){
-    toast("Web Push is not configured yet. Add the VAPID public key to push-config.js.");
-    return false;
-  }
-
-  const permission=await Notification.requestPermission();
-  if(permission!=="granted"){
-    toast("Notification permission was not granted.");
-    return false;
-  }
-
-  try{
-    const registration=await navigator.serviceWorker.ready;
-    let subscription=await registration.pushManager.getSubscription();
-    if(!subscription){
-      const padding="=".repeat((4-window.NUS_PUSH_CONFIG.vapidPublicKey.length%4)%4);
-      const base64=(window.NUS_PUSH_CONFIG.vapidPublicKey+padding).replace(/-/g,"+").replace(/_/g,"/");
-      const raw=Uint8Array.from(atob(base64),c=>c.charCodeAt(0));
-      subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:raw});
-    }
-    await window.nusFirebase.savePushSubscription(subscription.toJSON());
-    toast("Background push notifications enabled.");
-    return true;
-  }catch(err){
-    console.error("Web Push subscription failed",err);
-    toast(`Push setup failed: ${err.message||err}`);
-    return false;
-  }
-}
-
-function notificationStatus(){
-  return "Notification" in window ? Notification.permission : "unsupported";
-}
-
-function openNotificationCenter(){
-  const items=buildNotificationItems();
-  const now=Date.now();
-
-  // The notification centre should show notifications that are due now,
-  // not future reminders. For example, an activity on 20 Aug should not
-  // appear in the centre on 15 Aug just because its 1-day reminder is
-  // scheduled for 19 Aug.
-  // Show reminders that are due already OR scheduled within the next 24
-  // hours. This lets a task due tomorrow appear in the centre without
-  // prematurely showing activities several days away.
-  const next24h=24*60*60*1000;
-
-  // Show only the latest relevant reminder stage for each item.
-  // A missed 7-day reminder must not appear once the task is already inside
-  // its 1-day reminder window.
-  const grouped=new Map();
-  for(const item of items){
-    const key=item.id.replace(/-(7d|1d|overdue)(-.+)?$/,"");
-    if(!grouped.has(key))grouped.set(key,[]);
-    grouped.get(key).push(item);
-  }
-
-  const due=[];
-  for(const candidates of grouped.values()){
-    const valid=candidates
-      .filter(x=>x.when<=now || x.when-now<=next24h)
-      .sort((a,b)=>b.when-a.when);
-
-    if(valid.length)due.push(valid[0]);
-  }
-
-  due.sort((a,b)=>a.when-b.when);
-  openModal(`
-    <h2>🔔 Notifications</h2>
-    <p class="subtle">Notifications appear here when they are due. Task reminders are sent 7 days and 1 day before the deadline, and activities are reminded 1 day before. The centre shows the actual deadline/date, not a countdown to the reminder.</p>
-    <div class="list">
-      ${due.map(x=>{
-        const dateText=x.deadline ? ` · Deadline: ${esc(x.deadline)}` : "";
-        return `<div class="item"><div class="item-title">${esc(x.kind==="Task · overdue"?"⚠ ":"")}${esc(x.title)}</div><div class="item-sub">${esc(x.kind)}${dateText}</div></div>`;
-      }).join("")}
-      ${!due.length?`<div class="empty">No notifications right now.</div>`:""}
-    </div>
-    <div class="modal-footer">
-      <button class="secondary" id="enableNotificationsBtn">${notificationStatus()==="granted"?"Enable background notifications":"Enable notifications"}</button>
-      <button class="secondary" id="clearNotificationLogBtn">Reset reminder history</button>
-      <button class="secondary" id="closeNotificationCenter">Close</button>
-    </div>
-  `);
-  $("#closeNotificationCenter")?.addEventListener("click",closeModal);
-  $("#enableNotificationsBtn")?.addEventListener("click",async()=>{
-    await enableWebPushNotifications();
-    closeModal();
-  });
-  $("#clearNotificationLogBtn")?.addEventListener("click",()=>{
-    localStorage.removeItem(NOTIFICATION_KEY);
-    toast("Reminder history reset.");
-    closeModal();
-  });
-}
-
-function showCloudLoading(){
-  if(document.getElementById("cloudInitialLoading")) return;
-  const el=document.createElement("div");
-  el.id="cloudInitialLoading";
-  el.innerHTML=`<div class="cloud-loading-card"><div class="cloud-loading-spinner"></div><div class="cloud-loading-title">Loading your data...</div><div class="cloud-loading-subtitle">Please wait while we load your account.</div></div>`;
-  document.body.appendChild(el);
-}
-function hideCloudLoading(){ document.getElementById("cloudInitialLoading")?.remove(); }
-
-async function initCommon(){
-  const authenticated=await requireAuthentication();
-  if(!authenticated) return;
-
-  setupSidebarControls();
-  const savedTheme=localStorage.getItem("nus_theme");
-  if(savedTheme==="light") document.body.classList.add("light");
-
-  $("#themeBtn")?.addEventListener("click",()=>{
-    document.body.classList.toggle("light");
-    const light=document.body.classList.contains("light");
-    localStorage.setItem("nus_theme", light?"light":"dark");
-    $("#themeBtn").innerHTML=light?"☾ <span>Dark mode</span>":"☀ <span>Light mode</span>";
-  });
-  if(document.body.classList.contains("light")) $("#themeBtn").innerHTML="☾ <span>Dark mode</span>";
-
-
-  $("#notifyBtn")?.addEventListener("click",async()=>{
-    openNotificationCenter();
-  });
-
-  // Reminder delivery is handled exclusively by the server-side Web Push
-  // scheduler. Do not run the old foreground/local notification scheduler,
-  // otherwise one reminder can produce two notifications.
-
-  setupInstall();
-  showCloudLoading();
-  await setupFirebaseAccount();
-  try{
-    if(window.nusFirebase?.user && window.nusAccountDataReady) await window.nusAccountDataReady;
-  }catch(err){
-    console.error("Account data loading failed",err);
-    toast("Could not load your account data.");
-  }
-  hideCloudLoading();
-  if("serviceWorker" in navigator) navigator.serviceWorker.register("/sw.js", {updateViaCache:"none"}).then(r=>r.update()).catch(()=>{});
-}
-
-async function setupFirebaseAccount(){
-  let resolveAccountData;
-  let rejectAccountData;
-  window.nusAccountDataReady=new Promise((resolve,reject)=>{resolveAccountData=resolve;rejectAccountData=reject;});
-  const btn=$("#accountBtn");
-  if(!btn) return;
-
-  const update=()=>{
-    const user=window.nusFirebase?.user;
-    if(user){
-      btn.textContent=(user.displayName||user.email||"A").trim().charAt(0).toUpperCase();
-      btn.title=`Signed in as ${user.email||user.displayName||"Google account"}. Click to manage sync.`;
-      btn.classList.add("signed-in");
-    }else{
-      btn.textContent="A";
-      btn.title=window.nusFirebase?.configured ? "Sign in with Google" : "Firebase is not configured";
-      btn.classList.remove("signed-in");
-    }
-  };
-
-  const readableFirebaseError = error => {
-    const code=error?.code||"";
-    const map={
-      "auth/unauthorized-domain":"This Firebase domain is not authorised. Add your Firebase Hosting domain under Firebase Console → Authentication → Settings → Authorised domains.",
-      "auth/operation-not-allowed":"Google sign-in is not enabled. Enable Google under Firebase Console → Authentication → Sign-in method.",
-      "auth/popup-blocked":"The browser blocked the Google sign-in popup. Please allow popups or try again.",
-      "auth/popup-closed-by-user":"Google sign-in was cancelled.",
-      "auth/invalid-api-key":"The Firebase Web App API key is invalid.",
-      "auth/network-request-failed":"Firebase could not connect to the network.",
-    };
-    return map[code] || error?.message || "Firebase sign-in failed.";
-  };
-
-  window.addEventListener("nus-auth-changed",update);
-
-  window.addEventListener("nus-firebase-error",e=>{
-    const msg=readableFirebaseError(e.detail);
-    if(e.detail?.code!=="auth/popup-closed-by-user") toast(msg);
-  });
-
-  const cleanAccountState=()=>{
-    state.modules=[];
-    state.lessons=[];
-    state.activities=[];
-    state.tasks=[];
-    state.semester={academicYear:ACADEMIC_YEAR, semester:SEMESTER};
-    lastRemoteCloudChangeAt=0;
-  };
-
-  const applyCloudState=async remote=>{
-    const user=window.nusFirebase?.user;
-    if(!user) return;
-    if(activeAccountUid && activeAccountUid!==user.uid) return;
-    activeAccountUid=user.uid;
-
-    if(!remote){
-      // Brand-new account: start clean. Never copy the previous user's state.
-      cleanAccountState();
-      accountDataReady=true;
-      resolveAccountData();
-      window.dispatchEvent(new CustomEvent("nus-cloud-state-applied"));
-      return;
-    }
-
-    const remoteChangedAt=Number(remote.clientUpdatedAt||0);
-    if(remoteChangedAt && remoteChangedAt < lastLocalCloudChangeAt) return;
-    if(remoteChangedAt && remoteChangedAt === lastRemoteCloudChangeAt) return;
-
-    lastRemoteCloudChangeAt=remoteChangedAt || Date.now();
-    if(Array.isArray(remote.modules)) state.modules=remote.modules;
-    if(Array.isArray(remote.lessons)) state.lessons=remote.lessons;
-    if(Array.isArray(remote.activities)) state.activities=remote.activities;
-    if(Array.isArray(remote.tasks)) state.tasks=remote.tasks;
-    if(remote.semester) state.semester=remote.semester;
-
-    accountDataReady=true;
-    resolveAccountData();
-    window.dispatchEvent(new CustomEvent("nus-cloud-state-applied"));
-  };
-
-  window.addEventListener("nus-cloud-state",e=>applyCloudState(e.detail));
-
-  const startRealtimeSync=()=>{
-    if(cloudSyncStop) cloudSyncStop();
-    cloudSyncStop=window.nusFirebase?.startStateSync?.(
-      remote=>{
-        cloudSyncActive=true;
-        applyCloudState(remote);
-      },
-      err=>{
-        cloudSyncActive=false;
-        console.error("Realtime cloud sync failed",err);
-        toast("Realtime sync is temporarily unavailable. Your local changes are still saved.");
-      }
-    ) || null;
-    if(cloudSyncStop) cloudSyncActive=true;
-  };
-
-  window.addEventListener("nus-auth-changed",e=>{
-    if(e.detail){
-      cleanAccountState();
-      activeAccountUid=e.detail.uid;
-      accountDataReady=false;
-      startRealtimeSync();
-    }else{
-      if(cloudSyncStop){ cloudSyncStop(); cloudSyncStop=null; }
-      cloudSyncActive=false;
-      accountDataReady=false;
-      activeAccountUid=null;
-      cleanAccountState();
-    }
-  });
-
-  window.addEventListener("nus-cloud-state-applied",()=>{
-    // Pages listen for this event to redraw without requiring Sync Now.
-    window.dispatchEvent(new CustomEvent("nus-data-changed"));
-  });
-
-  // initCommon runs after authentication has already resolved, so the
-  // auth-change event may have happened before this listener was installed.
-  // Start the realtime listener immediately for an already-authenticated user.
-  if(window.nusFirebase?.user) startRealtimeSync();
-
-  btn.addEventListener("click",async()=>{
-    const api=window.nusFirebase;
-
-    if(!api?.configured){
-      openModal(`
-        <h2>Firebase is not configured</h2>
-        <p class="subtle">Deploy this project with Firebase Hosting, or add your Firebase Web App configuration to <b>firebase-config.js</b>.</p>
-      `);
-      return;
-    }
-
-    if(api.user){
-      openModal(`
-        <h2>Cloud sync</h2>
-        <p class="subtle">Signed in as <b>${esc(api.user.email||api.user.displayName||"Google account")}</b>.</p>
-        <div class="list">
-          <button class="primary full-btn" id="syncNowBtn">Sync now</button>
-          <button class="secondary full-btn" id="signOutBtn">Sign out</button>
-        </div>
-      `);
-
-      $("#syncNowBtn")?.addEventListener("click",async()=>{
-        try{
-          await api.saveState(state);
-          toast("Synced successfully.");
-          closeModal();
-        }catch(err){
-          console.error(err);
-          toast(`Sync failed: ${readableFirebaseError(err)}`);
-        }
-      });
-
-      $("#signOutBtn")?.addEventListener("click",async()=>{
-        try{
-          cleanAccountState();
-          accountDataReady=false;
-          activeAccountUid=null;
-          if(cloudSyncStop){ cloudSyncStop(); cloudSyncStop=null; }
-          await api.signOut();
-          closeModal();
-          location.replace("/login.html");
-        }catch(err){ console.error(err); toast(readableFirebaseError(err)); }
-      });
-      return;
-    }
-
-    location.replace("/login.html");
-  });
-
-  update();
-
-  if(window.nusFirebaseReady){
-    try{ await window.nusFirebaseReady; update(); }
-    catch(err){ console.error(err); }
-  }
-}
-
-function toast(msg){
-  const x=document.createElement("div");
-  x.className="toast"; x.textContent=msg; document.body.appendChild(x);
-  setTimeout(()=>x.remove(),2600);
-}
-
-function openModal(html){
-  const b=$("#modalBackdrop"); if(!b) return;
-  $("#modalContent").innerHTML=html;
-  b.hidden=false; b.classList.remove("is-hidden");
-}
-function closeModal(){
-  const b=$("#modalBackdrop"); if(!b) return;
-  b.hidden=true; b.classList.add("is-hidden");
-}
-function initModal(){
-  $("#modalClose")?.addEventListener("click",closeModal);
-  $("#modalBackdrop")?.addEventListener("click",e=>{if(e.target.id==="modalBackdrop") closeModal();});
-  document.addEventListener("keydown",e=>{if(e.key==="Escape") closeModal();});
-}
-
-let deferredPrompt=null;
-function setupInstall(){
-  const btn=$("#installBtn");
-  const ios=/iPhone|iPad|iPod/i.test(navigator.userAgent) || (navigator.platform==="MacIntel"&&navigator.maxTouchPoints>1);
-  const standalone=matchMedia("(display-mode: standalone)").matches || navigator.standalone===true;
-  if(!standalone && btn) btn.hidden=false;
-
-  window.addEventListener("beforeinstallprompt",e=>{
-    e.preventDefault(); deferredPrompt=e; if(btn) btn.hidden=false;
-  });
-  btn?.addEventListener("click",async()=>{
-    if(deferredPrompt){
-      await deferredPrompt.prompt();
-      await deferredPrompt.userChoice;
-      deferredPrompt=null;
-      btn.hidden=true;
-      return;
-    }
-    if(ios){
-      openModal(`<h2>Install NUS Companion</h2><p class="subtle">On iPhone/iPad in Brave, use the Share menu and choose <b>Add to Home Screen</b>.</p>`);
-    } else toast("Use your browser's install option to add the PWA.");
-  });
-}
+/* ---------- Schedule queries ---------- */
 
 function activityOccursOnDate(a,date){
-  if(a.recurring) return date.toLocaleDateString("en-SG",{weekday:"long"})===a.day;
+  if(a.recurring) return dayName(date)===a.day;
   return a.date===isoDate(date);
-}
-
-function activityRange(a){
-  return {start:timeToMinutes(a.startTime),end:timeToMinutes(a.endTime)};
 }
 
 function taskDateTime(t){
   return new Date(`${t.dueDate}T${t.dueTime || "23:59"}:00`);
 }
 
-/* NUSMods */
+function isOverdue(t){ return !t.done && taskDateTime(t)<new Date(); }
+
+// Everything happening on a date, as uniform items sorted by start time.
+function itemsOnDate(date){
+  const day=dayName(date);
+  const lessons=state.lessons.filter(l=>l.day===day).map(l=>({
+    kind:"lesson", id:l.id, ref:l,
+    title:l.module, subtitle:`${l.lessonType||"Class"}${l.classNo&&l.classNo!=="TBC"?` ${l.classNo}`:""}`,
+    venue:l.venue, start:timeToMinutes(l.startTime), end:timeToMinutes(l.endTime)
+  }));
+  const acts=state.activities.filter(a=>activityOccursOnDate(a,date)).map(a=>({
+    kind:"activity", id:a.id, ref:a,
+    title:a.name, subtitle:a.club||"Activity",
+    venue:a.venue, start:timeToMinutes(a.startTime), end:timeToMinutes(a.endTime)
+  }));
+  const tasks=state.tasks.filter(t=>t.dueDate===isoDate(date)).map(t=>{
+    const due=timeToMinutes(t.dueTime||"23:59");
+    return {kind:"task", id:t.id, ref:t, title:t.title, subtitle:t.module?`${t.module} · due`:"Due", start:due, end:due, done:t.done};
+  });
+  return [...lessons,...acts,...tasks]
+    .filter(x=>x.start!=null)
+    .sort((a,b)=>a.start-b.start || (a.kind==="task")-(b.kind==="task"));
+}
+
+// The next lesson or activity that hasn't ended yet, looking up to a week ahead.
+function nextEvent(){
+  const now=new Date();
+  const nowMin=now.getHours()*60+now.getMinutes();
+  for(let i=0;i<8;i++){
+    const date=addDays(now,i);
+    const items=itemsOnDate(date).filter(x=>x.kind!=="task" && x.end!=null);
+    const found=i===0 ? items.find(x=>x.end>nowMin) : items[0];
+    if(found){
+      const start=new Date(date); start.setHours(0,found.start,0,0);
+      const end=new Date(date); end.setHours(0,found.end,0,0);
+      return {...found,date,startAt:start,endAt:end};
+    }
+  }
+  return null;
+}
+
+/* ---------- Reminders ---------- */
+// Same rules as push-server/send-reminders.mjs: tasks 7 days and 1 day before
+// the deadline (plus when overdue), activities 1 day before.
+
+const NOTIFICATION_KEY="nus_notification_log_v59";
+
+function buildNotificationItems(){
+  const now=new Date(), items=[];
+  const add=(id,title,body,when,kind,href,deadline="")=>{
+    const t=new Date(when).getTime();
+    if(Number.isFinite(t)) items.push({id,title,body,when:t,kind,href,deadline});
+  };
+
+  for(const task of state.tasks){
+    if(task.done || !task.dueDate) continue;
+    const due=taskDateTime(task);
+    if(Number.isNaN(due.getTime())) continue;
+    add(`${task.id}-7d`,task.title,`${task.module||"Task"} · due ${fmtDate(task.dueDate)}`,due.getTime()-7*86400000,"Task · 7 days","/#/tasks",fmtDate(task.dueDate));
+    add(`${task.id}-1d`,task.title,`${task.module||"Task"} · due tomorrow`,due.getTime()-86400000,"Task · 1 day","/#/tasks",fmtDate(task.dueDate));
+    if(due<=now) add(`${task.id}-overdue`,task.title,`${task.module||"Task"} · overdue`,due,"Task · overdue","/#/tasks",fmtDate(task.dueDate));
+  }
+
+  // Recurring activities: remind for the next occurrence only.
+  for(const a of state.activities){
+    let d=null;
+    if(a.recurring && a.day){
+      const target=["Sunday",...DAYS.slice(0,6)].indexOf(a.day);
+      if(target>=0){
+        d=new Date(now); d.setHours(0,0,0,0);
+        let delta=(target-d.getDay()+7)%7;
+        if(delta===0 && now.getHours()>=12) delta=7;
+        d.setDate(d.getDate()+delta);
+        d.setHours(...(a.startTime||"09:00").split(":").map(Number),0,0);
+      }
+    }else if(a.date){
+      d=new Date(`${a.date}T${a.startTime||"09:00"}:00`);
+    }
+    if(!d || Number.isNaN(d.getTime())) continue;
+    const label=a.recurring ? `${a.day} (next occurrence)` : fmtDate(a.date);
+    add(`${a.id}-1d-${a.recurring?isoDate(d):a.date}`,a.name,`${a.club||"Activity"} · tomorrow`,d.getTime()-86400000,"Activity · 1 day","/#/more/activities",label);
+  }
+
+  return items.sort((a,b)=>a.when-b.when);
+}
+
+// Reminders that are due, or due within the next day, newest stage per item.
+function currentReminders(){
+  const now=Date.now(), grouped=new Map();
+  for(const item of buildNotificationItems()){
+    if(item.when>now+86400000) continue;
+    const key=item.id.replace(/-(7d|1d|overdue)(-.+)?$/,"");
+    const prev=grouped.get(key);
+    if(!prev || item.when>prev.when) grouped.set(key,item);
+  }
+  return [...grouped.values()].sort((a,b)=>a.when-b.when);
+}
+
+function notificationStatus(){
+  return "Notification" in window ? Notification.permission : "unsupported";
+}
+
+async function enableWebPushNotifications(){
+  if(!window.nusFirebase?.user){
+    toast("Please sign in first.");
+    return false;
+  }
+  if(!("Notification" in window) || !("serviceWorker" in navigator) || !("PushManager" in window)){
+    toast(/iPhone|iPad/.test(navigator.userAgent)
+      ? "Add NUS Companion to your Home Screen first, then enable notifications from there."
+      : "This browser doesn't support push notifications.");
+    return false;
+  }
+  const key=window.NUS_PUSH_CONFIG?.vapidPublicKey;
+  if(!key || key.includes("YOUR_")){
+    toast("Push notifications are not configured.");
+    return false;
+  }
+  if(await Notification.requestPermission()!=="granted"){
+    toast("Notifications were not allowed.");
+    return false;
+  }
+  try{
+    const registration=await navigator.serviceWorker.ready;
+    let subscription=await registration.pushManager.getSubscription();
+    if(!subscription){
+      const padding="=".repeat((4-key.length%4)%4);
+      const raw=Uint8Array.from(atob((key+padding).replace(/-/g,"+").replace(/_/g,"/")),c=>c.charCodeAt(0));
+      subscription=await registration.pushManager.subscribe({userVisibleOnly:true,applicationServerKey:raw});
+    }
+    await window.nusFirebase.savePushSubscription(subscription.toJSON());
+    toast("Reminders turned on");
+    return true;
+  }catch(err){
+    console.error("Web Push subscription failed",err);
+    toast(`Couldn't turn on reminders: ${err.message||err}`);
+    return false;
+  }
+}
+
+/* ---------- PWA install ---------- */
+
+let deferredPrompt=null;
+window.addEventListener("beforeinstallprompt",e=>{ e.preventDefault(); deferredPrompt=e; });
+
+function canInstallApp(){
+  if(isNativeApp()) return false;
+  return !(matchMedia("(display-mode: standalone)").matches || navigator.standalone===true);
+}
+
+async function setupInstall(){
+  if(deferredPrompt){
+    await deferredPrompt.prompt();
+    deferredPrompt=null;
+    return;
+  }
+  openModal(`<h2>Install NUS Companion</h2><p class="subtle">In Safari or Brave, tap the Share button and choose <b>Add to Home Screen</b>.</p>`);
+}
+
+/* ---------- NUSMods ---------- */
+
 let nusModuleListCache=null;
 async function fetchNUSModsList(){
   if(nusModuleListCache) return nusModuleListCache;
@@ -778,192 +426,71 @@ async function fetchNUSModsList(){
 }
 
 async function fetchNUSModsModule(code){
-  const moduleUrl=`${NUSMODS_BASE}/modules/${encodeURIComponent(code)}.json`;
-  const timetableUrl=`${NUSMODS_BASE}/semesters/${SEMESTER}/${encodeURIComponent(code)}/timetable.json`;
   const errors=[];
   let moduleData=null;
-
-  // First fetch the module information. This contains the title and, when
-  // available, the timetable used by NUSMods.
   try{
-    const r=await fetch(moduleUrl);
+    const r=await fetch(`${NUSMODS_BASE}/modules/${encodeURIComponent(code)}.json`);
     if(r.ok){
       moduleData=await r.json();
+      // Module info lists timetables per semester.
+      const sem=(moduleData.semesterData||[]).find(s=>String(s.semester)===SEMESTER);
+      if(sem && Array.isArray(sem.timetable)) return {...moduleData,timetable:sem.timetable};
       if(Array.isArray(moduleData.timetable)) return moduleData;
-    }else{
-      errors.push(`module endpoint returned ${r.status}`);
-    }
-  }catch(e){
-    errors.push("module endpoint could not be reached");
-  }
+    }else errors.push(`module endpoint returned ${r.status}`);
+  }catch{ errors.push("module endpoint could not be reached"); }
 
-  // Some modules exist in the catalogue but have semester-specific timetable
-  // data only. Try the semester endpoint as a fallback.
   try{
-    const r=await fetch(timetableUrl);
+    const r=await fetch(`${NUSMODS_BASE}/semesters/${SEMESTER}/${encodeURIComponent(code)}/timetable.json`);
     if(r.ok){
       const timetable=await r.json();
-      return {
-        ...(moduleData||{}),
-        moduleCode:moduleData?.moduleCode||code,
-        title:moduleData?.title||moduleName(code),
-        timetable:Array.isArray(timetable)?timetable:(timetable?.timetable||[])
-      };
+      return {...(moduleData||{}),moduleCode:moduleData?.moduleCode||code,title:moduleData?.title||moduleName(code),
+        timetable:Array.isArray(timetable)?timetable:(timetable?.timetable||[])};
     }
     errors.push(`semester timetable returned ${r.status}`);
-  }catch(e){
-    errors.push("semester timetable endpoint could not be reached");
-  }
+  }catch{ errors.push("semester timetable could not be reached"); }
 
-  if(moduleData){
-    return {
-      ...moduleData,
-      moduleCode:moduleData.moduleCode||code,
-      title:moduleData.title||moduleName(code),
-      timetable:Array.isArray(moduleData.timetable)?moduleData.timetable:[]
-    };
-  }
-
+  if(moduleData) return {...moduleData,moduleCode:moduleData.moduleCode||code,title:moduleData.title||code,timetable:[]};
   throw new Error(`${code} could not be loaded from NUSMods (${errors.join("; ")}).`);
 }
 
 function normaliseLessonData(data, code){
   const raw=Array.isArray(data.timetable)?data.timetable:[];
-  const days=["Monday","Tuesday","Wednesday","Thursday","Friday","Saturday","Sunday"];
-
-  const normaliseTime=(value)=>{
-    if(value==null||value==="")return "";
-    const n=timeToMinutes(value);
-    if(n==null)return String(value);
-    return `${String(Math.floor(n/60)).padStart(2,"0")}:${String(n%60).padStart(2,"0")}`;
+  const normaliseTime=v=>{
+    if(v==null||v==="") return "";
+    const n=timeToMinutes(v);
+    return n==null ? String(v) : minutesToInput(n);
   };
-
-  const normaliseDay=value=>{
-    if(value==null||value==="")return "";
-    const text=String(value).trim();
-    const found=days.find(d=>d.toLowerCase()===text.toLowerCase());
-    return found||text;
+  const normaliseDay=v=>{
+    const text=String(v||"").trim();
+    return DAYS.find(d=>d.toLowerCase()===text.toLowerCase())||text;
   };
-
   const timetable=raw.map((x,i)=>{
-    if(!x||typeof x!=="object")return null;
-
-    // NUSMods has used slightly different field names across API versions.
-    // Preserve all original fields, then expose one consistent format to the
-    // rest of the app.
-    const timeRange=x.time||x.timeRange||x.timing||"";
-    let rangeStart="",rangeEnd="";
-    if(timeRange){
-      const parsed=parseTimeRange(timeRange);
-      if(parsed){
-        rangeStart=normaliseTime(parsed.start);
-        rangeEnd=normaliseTime(parsed.end);
-      }
-    }
-
-    const start=normaliseTime(
-      x.startTime ?? x.start ?? x.start_time ?? x.starttime ?? rangeStart
-    );
-    const end=normaliseTime(
-      x.endTime ?? x.end ?? x.end_time ?? x.endtime ?? rangeEnd
-    );
-
+    if(!x||typeof x!=="object") return null;
+    const range=parseTimeRange(x.time||x.timeRange||"");
     return {
       ...x,
       id:x.id||`${code}-lesson-${i}`,
       module:code,
-      lessonType:x.lessonType||x.lessonTypeName||x.type||x.lesson_type||"Class",
-      classNo:String(x.classNo??x.ClassNo??x.class??x.classNumber??x.group??"TBC"),
-      day:normaliseDay(x.day||x.dayText||x.weekday||x.weekDay||""),
-      startTime:start,
-      endTime:end,
-      venue:x.venue||x.location||x.room||x.venueCode||""
+      lessonType:x.lessonType||x.type||"Class",
+      classNo:String(x.classNo??x.ClassNo??x.group??"TBC"),
+      day:normaliseDay(x.day||x.dayText||""),
+      startTime:normaliseTime(x.startTime??x.start??(range?minutesToInput(range.start):"")),
+      endTime:normaliseTime(x.endTime??x.end??(range?minutesToInput(range.end):"")),
+      venue:x.venue||x.location||""
     };
   }).filter(x=>x && x.day && x.startTime && x.endTime);
-
-  return {
-    moduleCode:data.moduleCode||code,
-    title:data.title||moduleName(code),
-    timetable
-  };
+  return {moduleCode:data.moduleCode||code,title:data.title||moduleName(code),timetable};
 }
 
+// [["Lecture::1",[lessons]], ...]
 function lessonGroups(data){
   const groups=new Map();
   for(const l of data.timetable){
-    const type=l.lessonType||"Class";
-    const no=String(l.classNo??l.ClassNo??"").trim() || "TBC";
-    const key=`${type}::${no}`;
+    const key=`${l.lessonType||"Class"}::${String(l.classNo||"TBC").trim()||"TBC"}`;
     if(!groups.has(key)) groups.set(key,[]);
     groups.get(key).push(l);
   }
   return [...groups.entries()];
 }
 
-function lessonGroupLabel(type,no){
-  const pretty=String(type||"Class").trim() || "Class";
-  return `${pretty} · Group ${no}`;
-}
-
-function migrateOldData(){
-  let changed=false;
-  state.modules=(state.modules||[]).map(m=>({code:m.code,name:m.name||m.code}));
-  state.activities=(state.activities||[]).map(a=>{
-    if(a.recurring===undefined){
-      const range=parseTimeRange(a.time);
-      changed=true;
-      return {id:a.id||crypto.randomUUID?.()||String(Date.now()+Math.random()),name:a.name||"Activity",club:a.club||"",module:a.module||"",recurring:true,day:a.day||"Monday",date:"",startTime:range?`${String(Math.floor(range.start/60)).padStart(2,"0")}:${String(range.start%60).padStart(2,"0")}`:"19:00",endTime:range?`${String(Math.floor(range.end/60)).padStart(2,"0")}:${String(range.end%60).padStart(2,"0")}`:"20:00",venue:a.venue||""};
-    }
-    return a;
-  });
-  state.tasks=(state.tasks||[]).map(t=>{
-    if(!t.dueDate){
-      changed=true;
-      return {...t,dueDate:t.due||isoDate(new Date()),dueTime:t.dueTime||"23:59"};
-    }
-    return t;
-  });
-  if(changed) save();
-}
-
-migrateOldData();
-
-function migrateLessonTimings(){
-  let changed=false;
-  state.lessons=(state.lessons||[]).map((l,i)=>{
-    if(!l||typeof l!=="object")return l;
-    const next={...l};
-    if(!next.startTime) {
-      const v=next.start??next.start_time??next.starttime;
-      if(v!=null){ const m=timeToMinutes(v); if(m!=null){next.startTime=`${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;changed=true;} }
-    }
-    if(!next.endTime) {
-      const v=next.end??next.end_time??next.endtime;
-      if(v!=null){ const m=timeToMinutes(v); if(m!=null){next.endTime=`${String(Math.floor(m/60)).padStart(2,"0")}:${String(m%60).padStart(2,"0")}`;changed=true;} }
-    }
-    return next;
-  });
-  if(changed)save();
-}
-
-migrateLessonTimings();
-
-// Build the shared shell before page-specific scripts render their content.
-// Each HTML page only needs <div class="app-shell"></div>.
-document.addEventListener("DOMContentLoaded", () => {
-  const shell = document.querySelector(".app-shell");
-  if (!shell || shell.querySelector(".sidebar")) return;
-
-  const page = document.body.dataset.page || "home";
-  const titles = {
-    home: "Good evening, Austin.",
-    calendar: "Calendar",
-    modules: "Your modules",
-    activities: "Clubs & activities",
-    tasks: "Tasks & deadlines",
-    map: "NUS Map",
-    bus: "Bus Timings"
-  };
-
-  shell.innerHTML = pageShell(page, titles[page] || "NUS Companion", "");
-});
+function lessonKey(l){ return `${l.lessonType||"Class"}::${String(l.classNo??"TBC")}`; }

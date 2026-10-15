@@ -96,7 +96,13 @@
       }
 
       const api={
-        configured:true,app,auth,db,user:null,error:null,
+          configured:true,
+          app,
+          auth,
+          db,
+          user:null,
+          error:null,
+          stateListener:null,
         async signInGoogle(){
           const ios=/iPad|iPhone|iPod/.test(navigator.userAgent) ||
             (navigator.platform==="MacIntel" && navigator.maxTouchPoints>1);
@@ -149,6 +155,78 @@
           if(!api.user)return null;
           const snap=await db.collection("users").doc(api.user.uid).collection("appState").doc("main").get();
           return snap.exists?snap.data():null;
+        },
+        startStateSync(
+          onChange,
+          onError
+        ){
+
+          // Remove any existing listener first.
+          if(api.stateListener){
+            api.stateListener();
+            api.stateListener=null;
+          }
+
+          if(!api.user){
+            return ()=>{};
+          }
+
+          const reference =
+            db
+              .collection("users")
+              .doc(api.user.uid)
+              .collection("appState")
+              .doc("main");
+
+          api.stateListener =
+            reference.onSnapshot(
+
+              snapshot => {
+
+                if(!snapshot.exists){
+                  console.log(
+                    "Firestore app state document does not exist yet."
+                  );
+                  return;
+                }
+
+                const remoteState =
+                  snapshot.data();
+
+                console.log(
+                  "Firestore state changed:",
+                  remoteState
+                );
+
+                if(typeof onChange === "function"){
+                  onChange(remoteState);
+                }
+              },
+
+              error => {
+
+                console.error(
+                  "Firestore realtime sync failed:",
+                  error
+                );
+
+                if(typeof onError === "function"){
+                  onError(error);
+                }
+              }
+            );
+
+          // Return a function that stops the listener.
+          return ()=>{
+
+            if(api.stateListener){
+
+              api.stateListener();
+
+              api.stateListener=null;
+            }
+
+          };
         },
         async savePushSubscription(subscription){
           if(!api.user) throw new Error("You are not signed in.");

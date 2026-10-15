@@ -2,22 +2,52 @@ rules_version = '2';
 
 service cloud.firestore {
   match /databases/{database}/documents {
-    // User profile document. The client needs to create/update this parent
-    // document before saving app state and push subscriptions.
-    match /users/{userId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+    // ============================================================
+    // USER DATA
+    // ============================================================
+
+    // Each user can only access their own data.
+    match /users/{userId}/{document=**} {
+
+      allow read, write:
+        if request.auth != null
+        && request.auth.uid == userId;
     }
 
-    match /users/{userId}/appState/{documentId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+    // ============================================================
+    // GLOBAL LOCATION DATA
+    // ============================================================
+
+    // NUS venues, NUS shuttle bus stops and public bus stops
+    // are shared location data.
+    //
+    // During development, authenticated users can read and write
+    // these records.
+    //
+    // We will tighten WRITE permissions later when we move the
+    // NUSMods/LTA import process to a trusted backend.
+    // ============================================================
+
+    match /locations/venues/items/{venueId} {
+
+      allow read, write:
+        if request.auth != null;
     }
 
-    match /users/{userId}/pushSubscriptions/{subscriptionId} {
-      allow read, write: if request.auth != null && request.auth.uid == userId;
+
+    match /locations/nusBusStops/items/{stopId} {
+
+      allow read, write:
+        if request.auth != null;
     }
 
-    match /{document=**} {
-      allow read, write: if false;
+
+    match /locations/publicBusStops/items/{stopId} {
+
+      allow read, write:
+        if request.auth != null;
     }
   }
 }
