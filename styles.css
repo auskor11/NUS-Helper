@@ -361,6 +361,8 @@ select.input{background-image:linear-gradient(45deg,transparent 50%,var(--muted)
 .saved-chip svg{color:var(--accent)}
 .result-icon.t-saved{background:var(--accent);color:#fff}
 .place-actions{display:grid;grid-template-columns:1fr auto;gap:8px;margin:12px 0 6px}
+.place-links{display:flex;gap:8px;margin-top:10px}
+.place-links .chip{text-decoration:none}
 .place-actions #walkHere{margin:0}
 .icon-pick{display:grid;grid-template-columns:repeat(4,1fr);gap:8px}
 .icon-opt{display:flex;flex-direction:column;align-items:center;gap:4px;padding:10px 4px;border-radius:12px;background:var(--surface2);border:1.5px solid transparent;color:var(--muted);font-size:12px;font-weight:600}
