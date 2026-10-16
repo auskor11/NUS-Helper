@@ -278,8 +278,10 @@ function syllabusViewHTML(date){
       ${due.length?`<h4 class="sub-head">Due this week</h4>${due.map(a=>assessmentRowHTML(a,{showModule:false})).join("")}`:""}
     </div>`;
   }).join("");
-  const now=new Date();
-  const upcoming=all.filter(a=>!a.when||a.when>=now), past=all.filter(a=>a.when&&a.when<now);
+  // Ongoing components (participation, XP…) have no date or week; they're
+  // listed under Grades instead.
+  const now=new Date(), scheduled=all.filter(a=>a.date||a.week);
+  const upcoming=scheduled.filter(a=>!a.when||a.when>=now), past=scheduled.filter(a=>a.when&&a.when<now);
   return `${toolbar}${cards}
     <h3 class="section-title">Assessments</h3>
     <div class="card flush assess-list">${upcoming.length?upcoming.map(a=>assessmentRowHTML(a)).join(""):`<div class="empty-inline">No upcoming assessments.</div>`}
@@ -336,7 +338,7 @@ function gradeCardHTML(m){
     ${Math.abs(g.total-100)>0.5?`<div class="grade-warn">Weights add up to ${pctText(g.total)}, not 100%. Check the outline or add the missing component in a new file.</div>`:""}
     <div class="grade-rows">${(m.assessments||[]).map((a,i)=>weightValue(a.weight)==null?"":`
       <button class="grade-row" data-grade="${esc(m.code)}|${i}">
-        <span class="grade-title">${esc(a.title)}<small>${esc(weightLabel(a.weight))}${a.group&&a.best?` · best ${a.best} of ${(m.assessments||[]).filter(x=>x.group===a.group).length} count`:""}</small></span>
+        <span class="grade-title">${esc(a.title)}<small>${esc(weightLabel(a.weight))}${!a.date&&!a.week?" · ongoing":""}${a.group&&a.best?` · best ${a.best} of ${(m.assessments||[]).filter(x=>x.group===a.group).length} count`:""}</small></span>
         <span class="grade-score ${a.score==null?"empty":""}">${a.score==null?"Add score":`${esc(a.scoreText||pctText(a.score))}<small>+${pctText(weightValue(a.weight)*a.score/100)}</small>`}</span>
       </button>`).join("")}</div>
   </div>`;
