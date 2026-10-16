@@ -11,7 +11,7 @@ function openLessonSheet(lesson){
     <h2>${esc(lesson.module)}</h2>
     <p class="subtle">${esc(mod?.name||"")}</p>
     <div class="detail-list">
-      <div>${icon("M7 3v3M17 3v3M4 8h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z",18)}<span>Every ${esc(lesson.day)}</span></div>
+      <div>${icon("M7 3v3M17 3v3M4 8h16M5 5h14a1 1 0 0 1 1 1v13a1 1 0 0 1-1 1H5a1 1 0 0 1-1-1V6a1 1 0 0 1 1-1z",18)}<span>${esc(lesson.day)}s · ${esc(weeksLabel(lesson.weeks))}</span></div>
       <div>${icon("M12 7v5l3 2M12 21a9 9 0 1 0 0-18 9 9 0 0 0 0 18z",18)}<span>${inputTimeToLabel(lesson.startTime)} – ${inputTimeToLabel(lesson.endTime)}</span></div>
     </div>
     <div class="sheet-actions">
@@ -192,7 +192,7 @@ views.schedule=(()=>{
         ${cells.map(d=>{
           const tasks=state.tasks.filter(t=>t.dueDate===isoDate(d)&&!t.done).length;
           const acts=state.activities.filter(a=>activityOccursOnDate(a,d)).length;
-          const lessons=state.lessons.some(l=>l.day===dayName(d));
+          const lessons=state.lessons.some(l=>lessonOccursOnDate(l,d));
           return `<button class="month-cell ${d.getMonth()===m?"":"out"} ${sameDay(d,now)?"today":""}" data-date="${isoDate(d)}">
             <b>${d.getDate()}</b>
             <span class="dots">${lessons?`<i class="d-lesson"></i>`:""}${acts?`<i class="d-activity"></i>`:""}${tasks?`<i class="d-task"></i>`:""}</span>
@@ -205,7 +205,7 @@ views.schedule=(()=>{
   function render(){
     el.innerHTML=`
       ${pageHeader("Schedule",{
-        eyebrow:`AY${esc(state.semester.academicYear)} · Sem ${esc(state.semester.semester)}`,
+        eyebrow:`AY${esc(state.semester.academicYear)} · Sem ${esc(state.semester.semester)}${academicWeek(selected)?` · ${esc(academicWeek(selected).label)}`:""}`,
         actions:sameDay(selected,new Date())&&mode!=="month"?"":`<button class="btn ghost sm" id="goToday">Today</button>`
       })}
       <div class="segmented">
