@@ -180,6 +180,18 @@ views.schedule=(()=>{
       </div></div>`;
   }
 
+  // Wide screens show what's on each day by name (styles.css hides this on
+  // phones, which keep the dots): assessments, tasks and activities, then a
+  // count of classes.
+  function monthCellItems(d){
+    const items=itemsOnDate(d).filter(x=>x.kind!=="lesson"&&!(x.kind==="task"&&x.done));
+    const classes=itemsOnDate(d).filter(x=>x.kind==="lesson").length;
+    const shown=items.slice(0,3);
+    return `<span class="mc-items">${shown.map(x=>`<span class="mc-item kind-${x.kind}">${esc(x.kind==="assessment"?`${x.subtitle.split(" · ")[0]} ${x.title}`:x.title)}</span>`).join("")}
+      ${items.length>3?`<span class="mc-more">+${items.length-3} more</span>`:""}
+      ${classes?`<span class="mc-more">${classes} class${classes===1?"":"es"}</span>`:""}</span>`;
+  }
+
   function monthView(){
     const y=monthCursor.getFullYear(), m=monthCursor.getMonth();
     const start=startOfWeek(new Date(y,m,1));
@@ -200,6 +212,7 @@ views.schedule=(()=>{
           return `<button class="month-cell ${d.getMonth()===m?"":"out"} ${sameDay(d,now)?"today":""}" data-date="${isoDate(d)}">
             <b>${d.getDate()}</b>
             <span class="dots">${lessons?`<i class="d-lesson"></i>`:""}${acts?`<i class="d-activity"></i>`:""}${assess?`<i class="d-assessment"></i>`:""}${tasks?`<i class="d-task"></i>`:""}</span>
+            ${monthCellItems(d)}
           </button>`;
         }).join("")}
       </div>
