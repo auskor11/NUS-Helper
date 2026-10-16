@@ -183,6 +183,9 @@ select.input{background-image:linear-gradient(45deg,transparent 50%,var(--muted)
 .eta-row{display:grid;grid-template-columns:52px auto 1fr;align-items:center;gap:10px;padding:7px 0}
 .eta-next{font-size:15px}
 .eta-next b{font-size:20px;font-weight:800}
+.eta-next .bus-info{display:flex;align-items:center;gap:5px;font-size:11.5px;color:var(--muted);margin-top:1px;white-space:nowrap}
+.load{width:7px;height:7px;border-radius:50%;flex-shrink:0;background:var(--muted)}
+.load-SEA{background:#22c55e}.load-SDA{background:#f59e0b}.load-LSD{background:#ef4444}
 .eta-then{color:var(--muted);font-size:12.5px;text-align:right}
 .route-badge{display:inline-grid;place-items:center;min-width:44px;height:28px;padding:0 8px;border-radius:8px;font-weight:800;font-size:13px;color:#fff;background:#64748b}
 .route-badge.public{background:#16a34a}
