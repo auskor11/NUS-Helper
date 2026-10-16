@@ -37,7 +37,11 @@ function lessonTopic(lesson,date){
     : t.startsWith("rec") ? w.recitation||w.tutorial
     : t.startsWith("tut") ? w.tutorial
     : t.startsWith("lab") ? w.lab : "";
-  return pick||w.topic||"";
+  const text=pick||w.topic||"";
+  // "Wed: L9A Environment Model · Fri: L9B Lists and Loops II" -> the part for this day.
+  const day=new Date(date).toLocaleDateString("en-US",{weekday:"short"});
+  const part=text.split(" · ").find(p=>p.startsWith(`${day}:`));
+  return part ? part.slice(day.length+1).trim() : text;
 }
 
 // Every assessment, soonest first; ones without a date sort by week.
