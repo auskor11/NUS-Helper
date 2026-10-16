@@ -44,6 +44,26 @@ function reminderForTask(task, now) {
   return {stage, reminder, due, id:`task:${task.id}:${stage}`, title:stage === "overdue" ? "⚠ Overdue task" : `🔔 Task · ${stage === "1d" ? "1 day" : "7 days"}`, body:`${task.title} · Deadline: ${fmtDate(task.dueDate)}${task.dueTime ? `, ${task.dueTime}` : ""}`, href:"/tasks.html"};
 }
 
+// Assessments from the syllabus: 3 days and 1 day before (at 9am), and on
+// the day (2 hours before a timed one, 9am for one with only a date).
+function reminderForAssessment(code, a, now) {
+  if (!a?.date) return null;
+  const at = localDateTime(a.date, a.time || "23:59");
+  if (!Number.isFinite(at)) return null;
+  const nine = localDateTime(a.date, "09:00");
+  const dayOf = a.time ? at - 2*60*MINUTE : nine;
+  const stages = [["day", dayOf, "today"], ["1d", nine - 24*60*MINUTE, "1 day"], ["3d", nine - 3*24*60*MINUTE, "3 days"]];
+  const hit = stages.find(([, when]) => now >= when);
+  if (!hit || now > at) return null;
+  const [stage, reminder, label] = hit;
+  if (now - reminder > WINDOW) return null;
+  const w = parseFloat(String(a.weight ?? "").replace(/[^0-9.]/g, ""));
+  const slug = String(a.title).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return {stage, reminder, due:at, id:`assess:${code}:${slug}:${a.date}:${stage}`, title:`🔔 Assessment · ${label}`,
+    body:`${code} ${a.title}${Number.isFinite(w) ? ` (${+w.toFixed(2)}%)` : ""} · ${fmtDate(a.date)}${a.time ? `, ${a.time}` : ""}${a.venue ? ` · ${a.venue}` : ""}`,
+    href:`/#/courses/module?code=${encodeURIComponent(code)}&tab=assess`};
+}
+
 function nextRecurringOccurrence(activity, now) {
   const days=["Sunday","Monday","Tuesday","Wednesday","Thursday","Friday","Saturday"];
   const target=days.indexOf(activity.day);
@@ -187,6 +207,7 @@ for (const userDoc of usersSnap.docs) {
   const reminders=[];
   for(const task of (state.tasks||[])) { const r=reminderForTask(task,now); if(r)reminders.push(r); }
   for(const activity of (state.activities||[])) { const r=reminderForActivity(activity,now); if(r)reminders.push(r); }
+  for(const m of (state.syllabus?.modules||[])) for(const a of (m.assessments||[])) { const r=reminderForAssessment(m.code,a,now); if(r)reminders.push(r); }
   if(!reminders.length) continue;
   await sendForUser(uid,subsSnap.docs,reminders,stats);
 }
