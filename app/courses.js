@@ -63,7 +63,7 @@ views.courses=(()=>{
         <b>${esc(aw?.label||"This week")}<small class="toolbar-sub">${esc(range)}</small></b>
         <button class="icon-btn sm" id="nextWeek" aria-label="Next week">${icon("M9 18l6-6-6-6",18)}</button>
       </div>
-      ${due.length?`<div class="card due-card"><h4>Due this week</h4>${due.map(a=>assessmentRowHTML(a)).join("")}</div>`:""}
+      ${due.length?`<div class="card due-card"><h4>Assessments this week</h4>${due.map(a=>assessmentRowHTML(a)).join("")}</div>`:""}
       ${mods.map(m=>{
         const w=syllabusWeek(m.code,selected);
         return `<button class="card syl-card tap" data-go="courses/module" data-params='${esc(JSON.stringify({code:m.code}))}'>

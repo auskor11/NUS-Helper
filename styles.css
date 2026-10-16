@@ -4,7 +4,7 @@
   --bg:#0b0d12; --surface:#14171f; --surface2:#1b1f29; --line:#262b37;
   --text:#f2f4f8; --muted:#8b93a5; --accent:#8b7cff; --accent2:#4fc8f0;
   --warn:#f6c85f; --danger:#ff6b8a; --ok:#4ade80;
-  --c-lesson:#8b7cff; --c-activity:#4fc8f0; --c-task:#f6c85f;
+  --c-lesson:#8b7cff; --c-activity:#4fc8f0; --c-task:#f6c85f; --c-assessment:#f87171;
   --tabbar-h:64px; --rail-w:224px; --radius:18px;
   --safe-top:env(safe-area-inset-top,0px); --safe-bottom:env(safe-area-inset-bottom,0px);
   --shadow:0 10px 30px rgba(0,0,0,.35);
@@ -13,7 +13,7 @@
 body.light{
   --bg:#f5f6fa; --surface:#fff; --surface2:#f0f2f7; --line:#e3e6ee;
   --text:#151821; --muted:#6b7385; --accent:#6d5df5; --accent2:#0b9fcf; --warn:#c98a00; --danger:#e23d63;
-  --c-lesson:#6d5df5; --c-activity:#0b9fcf; --c-task:#d99a00;
+  --c-lesson:#6d5df5; --c-activity:#0b9fcf; --c-task:#d99a00; --c-assessment:#e5484d;
   --shadow:0 10px 30px rgba(40,50,80,.10); --glass:rgba(255,255,255,.9);
 }
 
@@ -623,3 +623,5 @@ body.sheet-open{overflow:hidden}
 .outline-due{display:flex;align-items:center;gap:6px;font-size:13px;font-weight:600;padding:7px 10px;border-radius:10px;background:var(--surface2)}
 .outline-due.t-exam{color:#dc2626}.outline-due.t-quiz{color:#d97706}.outline-due.t-assignment,.outline-due.t-lab{color:#2563eb}
 .view-courses-module .segmented,.view-courses .segmented{position:sticky;top:calc(var(--safe-top) + 6px);z-index:5;box-shadow:0 -14px 0 8px var(--bg),0 6px 0 2px var(--bg)}
+.kind-assessment .tl-bar,.kind-assessment .agenda-bar,.d-assessment{background:var(--c-assessment)}
+.week-ev.kind-assessment{background:color-mix(in srgb,var(--c-assessment) 22%,var(--surface));border-left-color:var(--c-assessment)}
