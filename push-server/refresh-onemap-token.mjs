@@ -3,13 +3,12 @@
 // per-user rules), where the app reads it for public transport routing
 // (app/places.js loadOneMapRoutes). The OneMap email and password stay in
 // GitHub secrets and never reach the app. Without them this does nothing.
-import admin from "firebase-admin";
-
 const {ONEMAP_EMAIL, ONEMAP_PASSWORD, FIREBASE_SERVICE_ACCOUNT_JSON} = process.env;
 if (!ONEMAP_EMAIL || !ONEMAP_PASSWORD) {
   console.log("ONEMAP_EMAIL / ONEMAP_PASSWORD secrets not set; skipping. The app uses Transitous until they are.");
   process.exit(0);
 }
+const {default: admin} = await import("firebase-admin");
 const serviceAccount = JSON.parse(FIREBASE_SERVICE_ACCOUNT_JSON || "{}");
 if (!serviceAccount.project_id) throw new Error("FIREBASE_SERVICE_ACCOUNT_JSON is missing or invalid.");
 admin.initializeApp({credential: admin.credential.cert(serviceAccount)});
