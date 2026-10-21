@@ -178,6 +178,28 @@ if (usersSnap.size > 0) {
 } else {
   console.log("No documents were returned from /users.");
 }
+// MRT/LRT service alerts (LTA DataMall TrainServiceAlerts), when the
+// LTA_ACCOUNT_KEY secret is set. Saved per account at users/{uid}/private/mrt
+// for the website (LTA blocks browser requests); the key goes to
+// users/{uid}/private/lta so the iOS app can ask LTA directly.
+async function storeTrainAlerts(){
+  const key=process.env.LTA_ACCOUNT_KEY;
+  if(!key) return;
+  try{
+    const res=await fetch("https://datamall2.mytransport.sg/ltaodataservice/TrainServiceAlerts",{headers:{AccountKey:key,accept:"application/json"}});
+    if(!res.ok) throw new Error(`LTA ${res.status}`);
+    const body=await res.json();
+    const doc={value:body.value||{},checkedAt:Date.now()};
+    const users=await db.collection("users").listDocuments();
+    await Promise.all(users.flatMap(u=>[
+      u.collection("private").doc("mrt").set(doc),
+      u.collection("private").doc("lta").set({key})
+    ]));
+    console.log(`MRT status ${doc.value.Status??"?"} saved for ${users.length} account(s).`);
+  }catch(err){ console.warn("MRT alerts not updated:",err.message); }
+}
+await storeTrainAlerts();
+
 const now=Date.now();
 const testMode=String(process.env.PUSH_TEST||"false").toLowerCase()==="true";
 const stats={

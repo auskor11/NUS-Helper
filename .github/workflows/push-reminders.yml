@@ -34,5 +34,6 @@ jobs:
           VAPID_PUBLIC_KEY: ${{ vars.VAPID_PUBLIC_KEY }}
           VAPID_SUBJECT: ${{ vars.VAPID_SUBJECT }}
           PUSH_TEST: ${{ inputs.test_notification || 'false' }}
+          LTA_ACCOUNT_KEY: ${{ secrets.LTA_ACCOUNT_KEY }}
         working-directory: push-server
         run: node send-reminders.mjs
