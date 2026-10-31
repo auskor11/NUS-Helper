@@ -47,7 +47,7 @@ function reminderForTask(task, now) {
 // Assessments from the syllabus: 3 days and 1 day before (at 9am), and on
 // the day (2 hours before a timed one, 9am for one with only a date).
 function reminderForAssessment(code, a, now) {
-  if (!a?.date) return null;
+  if (!a?.date || (isTaskAssessment(a) && (a.done ?? a.score != null))) return null;   // ticked off in Tasks
   const at = localDateTime(a.date, a.time || "23:59");
   if (!Number.isFinite(at)) return null;
   const nine = localDateTime(a.date, "09:00");
@@ -62,6 +62,34 @@ function reminderForAssessment(code, a, now) {
   return {stage, reminder, due:at, id:`assess:${code}:${slug}:${a.date}:${stage}`, title:`🔔 Assessment · ${label}`,
     body:`${code} ${a.title}${Number.isFinite(w) ? ` (${+w.toFixed(2)}%)` : ""} · ${fmtDate(a.date)}${a.time ? `, ${a.time}` : ""}${a.venue ? ` · ${a.venue}` : ""}`,
     href:`/#/courses/module?code=${encodeURIComponent(code)}&tab=assess`};
+}
+
+// Ones you do yourself (online quizzes, assignments): when the window opens.
+// Same rule as isTaskAssessment / assessmentOpens in shared.js.
+const TASK_ASSESSMENT_TYPES = ["quiz", "assignment", "project", "lab"];
+function isTaskAssessment(a) {
+  if (!a?.date) return false;
+  if (a.task === true) return true;
+  if (a.task === false || a.official) return false;
+  return TASK_ASSESSMENT_TYPES.includes(a.type) && !(a.time && a.endTime);
+}
+function assessmentOpensAt(a) {
+  if (a?.opens) return String(a.opens).includes("T") ? localDateTime(...String(a.opens).split("T")) : localDateTime(a.opens, "00:00");
+  const m = String(a?.notes || "").match(/\bopens?\s+(?:at\s+)?(\d{1,2})[:.]?(\d{2})(?:\s*(am|pm))?(?:\s+(?:on\s+)?(?:the\s+)?(day before|(\d+)\s+days?\s+before))?/i);
+  if (!m || !a.date) return NaN;
+  let h = +m[1];
+  if (m[3]) { if (/pm/i.test(m[3]) && h < 12) h += 12; if (/am/i.test(m[3]) && h === 12) h = 0; }
+  const back = m[4] ? (m[5] ? +m[5] : 1) : 0;
+  return localDateTime(a.date, "00:00") - back * 24*60*MINUTE + (h*60 + +m[2]) * MINUTE;
+}
+function reminderForAssessmentOpen(code, a, now) {
+  if (!isTaskAssessment(a) || (a.done ?? a.score != null)) return null;
+  const opens = assessmentOpensAt(a);
+  if (!Number.isFinite(opens) || now < opens || now - opens > WINDOW) return null;
+  const slug = String(a.title).toLowerCase().replace(/[^a-z0-9]+/g, "-");
+  return {stage:"open", reminder:opens, due:localDateTime(a.date, a.time || "23:59"), id:`assess:${code}:${slug}:${a.date}:open`,
+    title:"🔓 Assessment · open now", body:`${code} ${a.title} is open · due ${fmtDate(a.date)}${a.time ? `, ${a.time}` : ""}`,
+    href:"/#/tasks"};
 }
 
 function nextRecurringOccurrence(activity, now) {
@@ -229,7 +257,9 @@ for (const userDoc of usersSnap.docs) {
   const reminders=[];
   for(const task of (state.tasks||[])) { const r=reminderForTask(task,now); if(r)reminders.push(r); }
   for(const activity of (state.activities||[])) { const r=reminderForActivity(activity,now); if(r)reminders.push(r); }
-  for(const m of (state.syllabus?.modules||[])) for(const a of (m.assessments||[])) { const r=reminderForAssessment(m.code,a,now); if(r)reminders.push(r); }
+  for(const m of (state.syllabus?.modules||[])) for(const a of (m.assessments||[])) {
+    for(const r of [reminderForAssessment(m.code,a,now), reminderForAssessmentOpen(m.code,a,now)]) if(r) reminders.push(r);
+  }
   if(!reminders.length) continue;
   await sendForUser(uid,subsSnap.docs,reminders,stats);
 }
